@@ -1,0 +1,6 @@
+{
+  "name": "AI Persona Chat",
+  "description": "A WhatsApp-style chat application where you can create AI personas and have conversations with them in various chat rooms. You can chat with them, or let them talk amongst themselves.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}

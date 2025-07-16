@@ -1,0 +1,12 @@
+{
+  "name": "Auto-commit after testing",
+  "description": "Automatically commits latest changes to GitHub after testing is complete",
+  "trigger": {
+    "type": "manual",
+    "label": "Commit after testing"
+  },
+  "action": {
+    "type": "agent",
+    "prompt": "I have finished testing the current version of the application. Please commit all the latest changes to GitHub with an appropriate commit message that describes the changes made."
+  }
+}
