@@ -1,0 +1,1 @@
+String scrollText = "Lisya <3 Yishai"; // הודעת ברירת מחדל
