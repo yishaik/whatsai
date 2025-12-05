@@ -15,22 +15,25 @@ import {
   Cpu,
   Image as ImageIcon,
   Paperclip,
-  Camera
+  Camera,
+  RefreshCcw,
+  Sparkles,
+  Home
 } from 'lucide-react';
+import { idbGet, idbSet, idbReady } from './db.js';
 
 // --- Constants & Config ---
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const APP_NAME = "WhatsApp AI Generator";
 
-// Updated Models List (Focus on Multimodal support)
-const AVAILABLE_MODELS = [
-  { id: "google/gemini-2.0-flash-lite-preview-02-05:free", name: "Gemini 2.0 Flash Lite (Free, Vision Supported)" },
-  { id: "google/gemini-2.0-pro-exp-02-05:free", name: "Gemini 2.0 Pro Exp (Free, Vision Supported)" },
-  { id: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B (Free, Text Only)" },
-  { id: "qwen/qwen-2.5-vl-72b-instruct:free", name: "Qwen 2.5 VL 72B (Free, Vision Supported)" },
-  { id: "openai/gpt-4o-mini", name: "GPT-4o Mini (Paid, Vision Supported)" },
-  { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet (Paid, Vision Supported)" },
-  { id: "custom", name: "אחר (הזנה ידנית)..." }
+// Fallback model list (used if fetch fails)
+const FALLBACK_MODELS = [
+  { id: "google/gemini-2.0-flash-lite-preview-02-05:free", name: "Gemini 2.0 Flash Lite (Vision, Free)" },
+  { id: "google/gemini-2.0-pro-exp-02-05:free", name: "Gemini 2.0 Pro Exp (Vision, Free)" },
+  { id: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B (Text, Free)" },
+  { id: "qwen/qwen-2.5-vl-72b-instruct:free", name: "Qwen 2.5 VL 72B (Vision, Free)" },
+  { id: "openai/gpt-4o-mini", name: "GPT-4o Mini (Vision)" },
+  { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet (Vision)" },
 ];
 
 const INITIAL_CHARACTERS = [
@@ -39,14 +42,20 @@ const INITIAL_CHARACTERS = [
     name: 'סחבק',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
     systemPrompt: 'אתה חבר טוב, מצחיק, ישראלי, משתמש בסלנג (אח שלי, נשמה, כפרה), ואוהב לעזור. אתה כותב קצר וקולע.',
-    color: 'text-blue-500'
+    color: 'text-blue-500',
+    modelId: 'inherit', // 'inherit' | specific id | 'custom'
+    customModel: '',
+    memory: ''
   },
   {
     id: 'c2',
     name: 'מבקר אמנות',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Picasso',
     systemPrompt: 'אתה מבקר אמנות מתנשא אך מבריק. אתה מנתח תמונות לעומק, מתייחס לקומפוזיציה וצבעים, ומשתמש במילים גבוהות.',
-    color: 'text-purple-500'
+    color: 'text-purple-500',
+    modelId: 'inherit',
+    customModel: '',
+    memory: ''
   }
 ];
 
@@ -55,8 +64,15 @@ export default function App() {
   
   // API & Config
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('or_api_key') || '');
-  const [selectedModelId, setSelectedModelId] = useState(() => localStorage.getItem('or_model_id') || AVAILABLE_MODELS[0].id);
+  const [availableModels, setAvailableModels] = useState(() => {
+    const stored = localStorage.getItem('or_available_models');
+    return stored ? JSON.parse(stored) : FALLBACK_MODELS;
+  });
+  const [selectedModelId, setSelectedModelId] = useState(() => localStorage.getItem('or_model_id') || (FALLBACK_MODELS[0]?.id || ''));
   const [customModelInput, setCustomModelInput] = useState(() => localStorage.getItem('or_custom_model') || '');
+  const [enableMemory, setEnableMemory] = useState(() => (localStorage.getItem('app_enable_memory') ?? 'true') === 'true');
+  const [includeDateTimeMeta, setIncludeDateTimeMeta] = useState(() => (localStorage.getItem('app_include_dt_meta') ?? 'true') === 'true');
+  const [includeGroupMeta, setIncludeGroupMeta] = useState(() => (localStorage.getItem('app_include_group_meta') ?? 'true') === 'true');
 
   // Data
   const [characters, setCharacters] = useState(() => {
@@ -78,22 +94,82 @@ export default function App() {
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [showNewGroupModal, setShowNewGroupModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showEditPersonaModal, setShowEditPersonaModal] = useState(false);
+  const [personaToEdit, setPersonaToEdit] = useState(null);
+  const [enhancingPrompt, setEnhancingPrompt] = useState(false);
+  const [showGroupManageModal, setShowGroupManageModal] = useState(false);
+  const [groupEdit, setGroupEdit] = useState({ name: '', topic: '', systemPrompt: '', participants: [] });
 
   // Inputs State
-  const [newCharData, setNewCharData] = useState({ name: '', avatar: '', systemPrompt: '' });
+  const [newCharData, setNewCharData] = useState({ name: '', avatar: '', systemPrompt: '', modelId: 'inherit', customModel: '' });
   const [selectedForGroup, setSelectedForGroup] = useState([]);
   const [groupName, setGroupName] = useState('');
   
   const messagesEndRef = useRef(null);
 
   // --- Effects ---
-  useEffect(() => { localStorage.setItem('app_characters', JSON.stringify(characters)); }, [characters]);
-  useEffect(() => { localStorage.setItem('app_chats', JSON.stringify(chats)); }, [chats]);
+  // Hydrate from IndexedDB if available
+  useEffect(() => {
+    (async () => {
+      try {
+        await idbReady();
+        const dbChars = await idbGet('app_characters');
+        const dbChats = await idbGet('app_chats');
+        if (Array.isArray(dbChars) && dbChars.length) setCharacters(dbChars);
+        if (Array.isArray(dbChats)) setChats(dbChats);
+      } catch (e) {
+        // ignore hydration failure
+      }
+    })();
+  }, []);
+  useEffect(() => { 
+    try { localStorage.setItem('app_characters', JSON.stringify(characters)); } catch {}
+    idbSet('app_characters', characters).catch(() => {});
+  }, [characters]);
+  useEffect(() => { 
+    try { localStorage.setItem('app_chats', JSON.stringify(chats)); } catch {}
+    idbSet('app_chats', chats).catch(() => {});
+  }, [chats]);
   useEffect(() => { localStorage.setItem('or_api_key', apiKey); }, [apiKey]);
   useEffect(() => { 
     localStorage.setItem('or_model_id', selectedModelId);
     if (selectedModelId === 'custom') localStorage.setItem('or_custom_model', customModelInput);
   }, [selectedModelId, customModelInput]);
+  useEffect(() => { localStorage.setItem('or_available_models', JSON.stringify(availableModels)); }, [availableModels]);
+  useEffect(() => { localStorage.setItem('app_enable_memory', String(enableMemory)); }, [enableMemory]);
+  useEffect(() => { localStorage.setItem('app_include_dt_meta', String(includeDateTimeMeta)); }, [includeDateTimeMeta]);
+  useEffect(() => { localStorage.setItem('app_include_group_meta', String(includeGroupMeta)); }, [includeGroupMeta]);
+
+  // Fetch latest models from OpenRouter (top 5)
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        const res = await fetch('https://openrouter.ai/api/v1/models', {
+          headers: {
+            'Content-Type': 'application/json',
+            'HTTP-Referer': window.location.href,
+            'X-Title': APP_NAME,
+          },
+        });
+        const data = await res.json();
+        if (data && Array.isArray(data.data)) {
+          let models = data.data;
+          // Attempt to sort by created desc if present
+          models = models.sort((a, b) => (b.created || 0) - (a.created || 0));
+          const top5 = models.slice(0, 5).map(m => ({ id: m.id, name: m.name || m.id }));
+          // Keep a few known popular options too (de-duped)
+          const merged = [];
+          const addUnique = (arr) => arr.forEach(m => { if (!merged.find(x => x.id === m.id)) merged.push(m); });
+          addUnique(top5);
+          addUnique(FALLBACK_MODELS);
+          setAvailableModels(merged);
+        }
+      } catch (_) {
+        // ignore, use fallback
+      }
+    };
+    fetchModels();
+  }, []);
 
   useEffect(() => {
     if (activeChatId && view === 'chat') {
@@ -109,6 +185,49 @@ export default function App() {
 
   const activeChat = chats.find(c => c.id === activeChatId);
   const getActiveModelString = () => selectedModelId === 'custom' ? customModelInput : selectedModelId;
+
+  const getModelForCharacter = (character) => {
+    if (!character) return getActiveModelString();
+    if (character.modelId === 'inherit' || !character.modelId) return getActiveModelString();
+    if (character.modelId === 'custom') return character.customModel || getActiveModelString();
+    return character.modelId;
+  };
+
+  // Enhance persona system prompt using selected model
+  const enhancePersonaPrompt = async () => {
+    if (!apiKey) {
+      alert('נא להגדיר מפתח API של OpenRouter בהגדרות.');
+      setShowSettingsModal(true);
+      return;
+    }
+    if (!personaToEdit) return;
+    setEnhancingPrompt(true);
+    try {
+      const modelToUse = getModelForCharacter(personaToEdit);
+      const messages = [
+        { role: 'system', content: 'אתה עורך מומחה לפרומפטים. החזר גרסה משופרת, תמציתית וברורה לפרומפט המערכת של הדמות — ללא הסברים, רק הטקסט הסופי. שמור על האישיות, הטון, כללי עשה/אל תעשה, ושילוב הקשר: שיחת וואטסאפ, תגובות קצרות בעברית.' },
+        { role: 'user', content: `פרומפט מקורי:\n${personaToEdit.systemPrompt}\n\nשפר/י אותו (קצר, חד וברור):` }
+      ];
+      const res = await fetch(OPENROUTER_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': window.location.href,
+          'X-Title': APP_NAME,
+        },
+        body: JSON.stringify({ model: modelToUse, messages, temperature: 0.4, max_tokens: 400 })
+      });
+      const data = await res.json();
+      const improved = data?.choices?.[0]?.message?.content?.trim();
+      if (improved) setPersonaToEdit(prev => ({ ...prev, systemPrompt: improved }));
+    } catch (e) {
+      console.error('Enhance prompt error', e);
+      alert('שגיאה בשיפור הפרומפט.');
+    } finally {
+      setEnhancingPrompt(false);
+    }
+  };
 
   const handleSendMessage = async (text, imageBase64 = null) => {
     if (!activeChatId || (!text.trim() && !imageBase64)) return;
@@ -136,39 +255,44 @@ export default function App() {
     }));
 
     // 2. Trigger AI
-    const chat = chats.find(c => c.id === activeChatId);
-    if (chat) {
+    const original = chats.find(c => c.id === activeChatId);
+    if (original) {
       setTypingStatus(prev => ({ ...prev, [activeChatId]: true }));
 
-      const responders = chat.participants;
-      
-      // Parallel processing for group chats
-      responders.forEach(async (charId) => {
+      // Ensure each persona reads prior personas by generating sequentially
+      const responders = original.participants;
+      let rollingChat = {
+        ...original,
+        messages: [...original.messages, newMessage],
+        summary: original.summary || ''
+      };
+
+      for (const charId of responders) {
         const character = characters.find(c => c.id === charId);
-        if (character) {
-          try {
-            const aiText = await fetchOpenRouterResponse(character, chat.messages, text, imageBase64);
-            
-            const aiMessage = {
-              id: Date.now().toString() + Math.random(),
-              senderId: character.id,
-              text: aiText,
-              timestamp: Date.now()
-            };
-
-            setChats(prevChats => prevChats.map(c => {
-              if (c.id === activeChatId) {
-                return { ...c, messages: [...c.messages, aiMessage] };
-              }
-              return c;
-            }));
-          } catch (error) {
-            console.error("AI Error:", error);
-          }
+        if (!character) continue;
+        try {
+          const aiText = await fetchOpenRouterResponse(character, rollingChat.messages, text, imageBase64);
+          const aiMessage = {
+            id: Date.now().toString() + Math.random(),
+            senderId: character.id,
+            text: aiText,
+            timestamp: Date.now()
+          };
+          // Update UI and rolling history
+          setChats(prevChats => prevChats.map(c => {
+            if (c.id === activeChatId) {
+              return { ...c, messages: [...c.messages, aiMessage] };
+            }
+            return c;
+          }));
+          rollingChat = { ...rollingChat, messages: [...rollingChat.messages, aiMessage] };
+          await maybeSummarizeAndRemember(rollingChat);
+        } catch (error) {
+          console.error('AI Error:', error);
         }
-      });
+      }
 
-      setTimeout(() => setTypingStatus(prev => ({ ...prev, [activeChatId]: false })), 4000);
+      setTypingStatus(prev => ({ ...prev, [activeChatId]: false }));
     }
   };
 
@@ -199,10 +323,29 @@ export default function App() {
       currentMessageContent = userLastMsg;
     }
 
+    // Build memory-aware system content + metadata/context
+    const personaMemory = character.memory ? `\n\nזיכרון דמות (פרטים חשובים, העדפות, עובדות):\n${character.memory}` : '';
+    const chatSummary = (activeChat?.summary && activeChat.summary.length > 0) ? `\n\nסיכום השיחה עד כה:\n${activeChat.summary}` : '';
+    const now = new Date();
+    const nowStr = now.toLocaleString('he-IL', { dateStyle: 'full', timeStyle: 'short' });
+    const isGroup = activeChat?.type === 'group';
+    const participantNames = isGroup ? activeChat.participants.map(pid => characters.find(c => c.id === pid)?.name).filter(Boolean).join(', ') : '';
+    const dateLine = includeDateTimeMeta ? `- תאריך ושעה נוכחיים: ${nowStr}.\n` : '';
+    const chatTypeLine = includeGroupMeta ? `- סוג שיחה: ${isGroup ? 'קבוצתי' : 'ישיר'}.\n` : '';
+    const groupNameLine = (includeGroupMeta && isGroup) ? `- קבוצה: "${activeChat.name}".\n` : '';
+    const topicLine = (includeGroupMeta && isGroup && activeChat.topic) ? `- נושא הקבוצה: ${activeChat.topic}.\n` : '';
+    const participantsLine = (includeGroupMeta && isGroup) ? `- משתתפים: ${participantNames} + המשתמש.\n` : '';
+    const roleLine = includeGroupMeta ? (isGroup 
+      ? `- דבר/י אך ורק בתור "${character.name}", ניתן לפנות לאחרים בשמם. אל תענה/י בשם אחרים.`
+      : `- שיחה ישירה בין המשתמש לדמות.`) : '';
+    const groupSystem = (isGroup && activeChat?.systemPrompt) ? `\n\nהנחיות לקבוצה:\n${activeChat.systemPrompt}` : '';
+    const metaBlock = `${dateLine}${chatTypeLine}${groupNameLine}${topicLine}${participantsLine}${roleLine ? roleLine + '\n' : ''}`;
+    const systemContent = `${character.systemPrompt}\n\nמטא-נתונים:\n${metaBlock}\nהנחיות:\n- השב/י בקצרה ובעברית (1–3 משפטים).\n- אם נשלחה תמונה, התייחס/י אליה במדויק.\n- שמור/י על עקביות עם הזיכרון והסיכום אם קיימים.${groupSystem}${personaMemory}${chatSummary}`;
+
     const messagesPayload = [
       {
         role: "system",
-        content: `${character.systemPrompt}\n\nהקשר: שיחת וואטסאפ. שמך: "${character.name}". השב בקצרה ובעברית. אם נשלחת תמונה, התייחס אליה.`
+        content: systemContent
       },
       ...recentHistory,
       {
@@ -211,7 +354,7 @@ export default function App() {
       }
     ];
 
-    const modelToUse = getActiveModelString();
+    const modelToUse = getModelForCharacter(character);
 
     try {
       const response = await fetch(OPENROUTER_API_URL, {
@@ -232,10 +375,68 @@ export default function App() {
 
       const data = await response.json();
       if (data.error) throw new Error(data.error.message);
-      return data.choices[0].message.content;
+      return data.choices?.[0]?.message?.content || '';
 
     } catch (err) {
       return `(שגיאה: ${err.message || "תקלה בתקשורת"})`;
+    }
+  };
+
+  // Summarize chat and update persona memory (lightweight, throttled)
+  const maybeSummarizeAndRemember = async (chat) => {
+    if (!enableMemory || !apiKey) return;
+    const total = chat.messages.length;
+    if (total < 12 || total % 8 !== 0) return; // throttle frequency
+
+    try {
+      const lastWindow = chat.messages.slice(-24).map(m => {
+        const who = m.senderId === 'user' ? 'User' : (characters.find(c => c.id === m.senderId)?.name || 'Bot');
+        return `${who}: ${m.text || (m.image ? '[תמונה]' : '')}`;
+      }).join('\n');
+
+      const summarizerPrompt = [
+        { role: 'system', content: 'אתה מסכם שיחות בצורה תמציתית. ציין עובדות חשובות בלבד.' },
+        { role: 'user', content: `סכם בקצרה את הדברים החשובים שקרו בשיחה (בהתמקדות בעובדות והעדפות מתמשכות).\n\nשיחה:\n${lastWindow}` }
+      ];
+
+      const modelForSummary = selectedModelId === 'custom' ? (customModelInput || selectedModelId) : selectedModelId;
+      const res = await fetch(OPENROUTER_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': window.location.href,
+          'X-Title': APP_NAME,
+        },
+        body: JSON.stringify({ model: modelForSummary, messages: summarizerPrompt, temperature: 0.2, max_tokens: 200 })
+      });
+      const data = await res.json();
+      const summaryText = data?.choices?.[0]?.message?.content || '';
+
+      setChats(prev => prev.map(c => c.id === chat.id ? { ...c, summary: (c.summary ? (c.summary + '\n' + summaryText) : summaryText) } : c));
+
+      // Extract memory items for personas in this chat
+      const memoryPrompt = [
+        { role: 'system', content: 'אתה עוזר שיוצר רשימת זיכרון מעשית לדמות על בסיס השיחה.' },
+        { role: 'user', content: `שלוף נקודות זיכרון חשובות וקבועות על המשתמש/ים (עובדות, העדפות, סגנון), בפורמט נקודות.\n\nשיחה:\n${lastWindow}` }
+      ];
+      const res2 = await fetch(OPENROUTER_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': window.location.href,
+          'X-Title': APP_NAME,
+        },
+        body: JSON.stringify({ model: modelForSummary, messages: memoryPrompt, temperature: 0.2, max_tokens: 200 })
+      });
+      const data2 = await res2.json();
+      const memText = data2?.choices?.[0]?.message?.content || '';
+
+      // Append memory to all personas that participated
+      setCharacters(prev => prev.map(ch => chat.participants.includes(ch.id) ? { ...ch, memory: (ch.memory ? (ch.memory + '\n' + memText) : memText) } : ch));
+    } catch (_) {
+      // ignore memory errors
     }
   };
 
@@ -245,12 +446,15 @@ export default function App() {
     const newChar = {
       id: `c${Date.now()}`,
       name: newCharData.name,
-      avatar: newCharData.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${newCharData.name + Date.now()}`,
+      avatar: newCharData.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(newCharData.name)}-${Date.now()}`,
       systemPrompt: newCharData.systemPrompt,
-      color: 'text-teal-600'
+      color: 'text-teal-600',
+      modelId: newCharData.modelId || 'inherit',
+      customModel: newCharData.customModel || '',
+      memory: ''
     };
     setCharacters([...characters, newChar]);
-    setNewCharData({ name: '', avatar: '', systemPrompt: '' });
+    setNewCharData({ name: '', avatar: '', systemPrompt: '', modelId: 'inherit', customModel: '' });
     setShowNewCharModal(false);
   };
 
@@ -259,7 +463,7 @@ export default function App() {
     if (existing) {
       setActiveChatId(existing.id);
     } else {
-      const newChat = { id: `chat${Date.now()}`, type: 'direct', participants: [character.id], name: character.name, avatar: character.avatar, messages: [], unread: 0 };
+      const newChat = { id: `chat${Date.now()}`, type: 'direct', participants: [character.id], name: character.name, avatar: character.avatar, messages: [], unread: 0, summary: '' };
       setChats([newChat, ...chats]);
       setActiveChatId(newChat.id);
     }
@@ -276,7 +480,10 @@ export default function App() {
       name: groupName,
       avatar: 'https://api.dicebear.com/7.x/identicon/svg?seed=' + groupName,
       messages: [],
-      unread: 0
+      unread: 0,
+      summary: '',
+      topic: '',
+      systemPrompt: ''
     };
     setChats([newChat, ...chats]);
     setActiveChatId(newChat.id);
@@ -284,6 +491,19 @@ export default function App() {
     setGroupName('');
     setShowNewGroupModal(false);
     setView('chat');
+  };
+
+  const saveGroupEdits = () => {
+    if (!groupEdit.name?.trim()) { alert('שם קבוצה נדרש.'); return; }
+    if (!Array.isArray(groupEdit.participants) || groupEdit.participants.length === 0) { alert('בחר/י לפחות דמות אחת לקבוצה.'); return; }
+    setChats(prev => prev.map(c => c.id === activeChatId ? {
+      ...c,
+      name: groupEdit.name.trim(),
+      topic: groupEdit.topic || '',
+      systemPrompt: groupEdit.systemPrompt || '',
+      participants: groupEdit.participants
+    } : c));
+    setShowGroupManageModal(false);
   };
 
   const deleteChat = (e, chatId) => {
@@ -295,7 +515,7 @@ export default function App() {
   // --- Render ---
 
   return (
-    <div className="flex h-screen bg-[#dfdfdf] text-gray-900 font-sans overflow-hidden" dir="rtl">
+    <div className="flex h-screen bg-[#dfdfdf] text-gray-900 font-sans overflow-hidden" dir="rtl" style={{ height: '100dvh' }}>
       <div className="fixed top-0 left-0 right-0 h-32 bg-[#00a884] z-0"></div>
 
       <div className="relative z-10 flex w-full max-w-[1600px] h-full mx-auto shadow-lg overflow-hidden xl:my-5 xl:h-[calc(100vh-40px)] xl:rounded-xl bg-white">
@@ -370,7 +590,7 @@ export default function App() {
           {activeChatId ? (
             <>
               {/* Top Bar */}
-              <div className="bg-[#f0f2f5] px-4 py-2.5 flex justify-between items-center shrink-0 z-10 border-l border-gray-300">
+              <div className="bg-[#f0f2f5] px-4 py-2.5 flex justify-between items-center shrink-0 z-10 border-l border-gray-300 sticky top-0">
                 <div className="flex items-center gap-4">
                   <button className="md:hidden" onClick={() => setView('list')}><ArrowRight className="w-6 h-6 text-[#54656f]" /></button>
                   <div className="w-10 h-10 rounded-full overflow-hidden cursor-pointer"><img src={activeChat.avatar} alt="" className="w-full h-full object-cover" /></div>
@@ -379,9 +599,36 @@ export default function App() {
                     <div className="text-xs text-[#667781]">
                        {typingStatus[activeChatId] ? <span className="text-[#00a884] font-medium animate-pulse">מקליד/ה...</span> : (activeChat.type === 'group' ? activeChat.participants.map(pid => characters.find(c => c.id === pid)?.name).join(', ') : 'מחובר/ת (AI)')}
                     </div>
+                    {activeChat.type === 'group' && activeChat.topic && (
+                      <div className="text-[11px] text-[#8696a0]">נושא: {activeChat.topic}</div>
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-4 text-[#54656f]"><Search className="w-5 h-5 cursor-pointer" /><MoreVertical className="w-5 h-5 cursor-pointer" /></div>
+                <div className="flex items-center gap-4 text-[#54656f]">
+                  <Search className="w-5 h-5 cursor-pointer" />
+                  {activeChat.type === 'group' && (
+                    <Users 
+                      className="w-5 h-5 cursor-pointer" 
+                      title="משתתפים"
+                      onClick={() => { setParticipantsDraft(activeChat.participants || []); setShowParticipantsModal(true); }}
+                    />
+                  )}
+                  <MoreVertical 
+                    className="w-5 h-5 cursor-pointer" 
+                    onClick={() => {
+                      if (activeChat.type === 'direct') {
+                        const pid = activeChat.participants[0];
+                        const persona = characters.find(c => c.id === pid);
+                        if (persona) { setPersonaToEdit(persona); setShowEditPersonaModal(true); }
+                      } else {
+                        const g = activeChat;
+                        setGroupEdit({ name: g.name || '', topic: g.topic || '', systemPrompt: g.systemPrompt || '', participants: Array.isArray(g.participants) ? [...g.participants] : [] });
+                        setShowGroupManageModal(true);
+                      }
+                    }}
+                    title="עריכה"
+                  />
+                </div>
               </div>
 
               {/* Messages */}
@@ -440,7 +687,8 @@ export default function App() {
                <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1">בחירת מודל AI</label>
                   <select value={selectedModelId} onChange={(e) => setSelectedModelId(e.target.value)} className="w-full border border-gray-300 rounded p-2 bg-white outline-none focus:border-[#00a884]">
-                    {AVAILABLE_MODELS.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
+                    {availableModels.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
+                    <option value="custom">אחר (הזנה ידנית)...</option>
                   </select>
                </div>
                {selectedModelId === 'custom' && (
@@ -449,6 +697,24 @@ export default function App() {
                     <input type="text" className="w-full border border-gray-300 rounded p-2 ltr bg-gray-50 outline-none" value={customModelInput} onChange={(e) => setCustomModelInput(e.target.value)} placeholder="e.g., anthropic/claude-3-opus" dir="ltr" />
                  </div>
                )}
+               <div className="flex items-center gap-2">
+                 <input id="dtmeta" type="checkbox" checked={includeDateTimeMeta} onChange={e => setIncludeDateTimeMeta(e.target.checked)} />
+                 <label htmlFor="dtmeta" className="text-sm">הכלל תאריך ושעה במטא-נתונים</label>
+               </div>
+               <div className="flex items-center gap-2">
+                 <input id="groupmeta" type="checkbox" checked={includeGroupMeta} onChange={e => setIncludeGroupMeta(e.target.checked)} />
+                 <label htmlFor="groupmeta" className="text-sm">הכלל פרטי קבוצה והקשר</label>
+               </div>
+               <div className="flex items-center gap-2">
+                 <input id="memtoggle" type="checkbox" checked={enableMemory} onChange={e => setEnableMemory(e.target.checked)} />
+                 <label htmlFor="memtoggle" className="text-sm">הפעל זיכרון וסיכום שיחה</label>
+               </div>
+               <button onClick={() => {
+                 if (confirm('לאפס את הזיכרון לכל הדמויות ואת סיכומי השיחות?')) {
+                   setCharacters(prev => prev.map(c => ({ ...c, memory: '' })));
+                   setChats(prev => prev.map(c => ({ ...c, summary: '' })));
+                 }
+               }} className="w-full border border-gray-300 text-gray-700 py-2 rounded hover:bg-gray-50">אפס זיכרון</button>
                <button onClick={() => setShowSettingsModal(false)} className="w-full bg-[#00a884] text-white py-2 rounded hover:bg-[#008f6f] mt-4">שמור וסגור</button>
            </div>
         </Modal>
@@ -458,9 +724,108 @@ export default function App() {
         <Modal title="יצירת דמות חדשה" onClose={() => setShowNewCharModal(false)}>
           <div className="space-y-4">
             <div><label className="block text-sm text-gray-600 mb-1">שם</label><input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={newCharData.name} onChange={e => setNewCharData({...newCharData, name: e.target.value})} /></div>
-            <div><label className="block text-sm text-gray-600 mb-1">תמונה (URL)</label><input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={newCharData.avatar} onChange={e => setNewCharData({...newCharData, avatar: e.target.value})} dir="ltr" /></div>
+            <div className="space-y-2">
+              <label className="block text-sm text-gray-600">בחר/י או הזן תמונה</label>
+              <div className="grid grid-cols-6 gap-2 max-h-[120px] overflow-y-auto p-1 bg-gray-50 rounded border">
+                {generateAvatarOptions(newCharData.name || 'User', 12).map((url, i) => (
+                  <button key={i} type="button" onClick={() => setNewCharData({ ...newCharData, avatar: url })} className={`rounded-full border ${newCharData.avatar === url ? 'border-[#00a884]' : 'border-transparent'} overflow-hidden w-12 h-12`}>
+                    <img src={url} alt="avatar" className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setNewCharData(prev => ({ ...prev, avatar: '' }))} className="text-xs text-gray-600 underline">נקה בחירה</button>
+                <button type="button" onClick={() => setNewCharData(prev => ({ ...prev, avatar: randomAvatar(prev.name || 'User') }))} className="flex items-center gap-1 text-xs text-[#00a884]"><RefreshCcw className="w-3 h-3"/>אקראי</button>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">או הזן כתובת תמונה (URL)</label>
+                <input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={newCharData.avatar} onChange={e => setNewCharData({...newCharData, avatar: e.target.value})} dir="ltr" />
+              </div>
+            </div>
             <div><label className="block text-sm text-gray-600 mb-1">System Prompt</label><textarea className="w-full border p-2 rounded h-24 resize-none outline-none focus:border-[#00a884]" value={newCharData.systemPrompt} onChange={e => setNewCharData({...newCharData, systemPrompt: e.target.value})} /></div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">מודל לדמות זו</label>
+              <select value={newCharData.modelId} onChange={e => setNewCharData({ ...newCharData, modelId: e.target.value })} className="w-full border p-2 rounded outline-none focus:border-[#00a884] bg-white">
+                <option value="inherit">ברירת מחדל (לפי הגדרות)</option>
+                {availableModels.map(m => (<option key={m.id} value={m.id}>{m.name}</option>))}
+                <option value="custom">אחר (הזנה ידנית)...</option>
+              </select>
+              {newCharData.modelId === 'custom' && (
+                <div className="mt-2">
+                  <label className="block text-xs text-gray-600 mb-1">Model ID</label>
+                  <input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={newCharData.customModel} onChange={e => setNewCharData({ ...newCharData, customModel: e.target.value })} dir="ltr" placeholder="e.g., anthropic/claude-3-opus" />
+                </div>
+              )}
+            </div>
             <button onClick={createCharacter} className="w-full bg-[#00a884] text-white py-2 rounded hover:bg-[#008f6f]" disabled={!newCharData.name}>צור דמות</button>
+          </div>
+        </Modal>
+      )}
+
+      {showEditPersonaModal && personaToEdit && (
+        <Modal title={`עריכת דמות: ${personaToEdit.name}`} onClose={() => setShowEditPersonaModal(false)}>
+          <div className="space-y-4">
+            <div><label className="block text-sm text-gray-600 mb-1">שם</label><input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={personaToEdit.name} onChange={e => setPersonaToEdit({ ...personaToEdit, name: e.target.value })} /></div>
+            <div className="space-y-2">
+              <label className="block text-sm text-gray-600">בחר/י או הזן תמונה</label>
+              <div className="grid grid-cols-6 gap-2 max-h-[120px] overflow-y-auto p-1 bg-gray-50 rounded border">
+                {generateAvatarOptions(personaToEdit.name || 'User', 12).map((url, i) => (
+                  <button key={i} type="button" onClick={() => setPersonaToEdit({ ...personaToEdit, avatar: url })} className={`rounded-full border ${personaToEdit.avatar === url ? 'border-[#00a884]' : 'border-transparent'} overflow-hidden w-12 h-12`}>
+                    <img src={url} alt="avatar" className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setPersonaToEdit(prev => ({ ...prev, avatar: '' }))} className="text-xs text-gray-600 underline">נקה בחירה</button>
+                <button type="button" onClick={() => setPersonaToEdit(prev => ({ ...prev, avatar: randomAvatar(prev.name || 'User') }))} className="flex items-center gap-1 text-xs text-[#00a884]"><RefreshCcw className="w-3 h-3"/>אקראי</button>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">או הזן כתובת תמונה (URL)</label>
+                <input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={personaToEdit.avatar} onChange={e => setPersonaToEdit({ ...personaToEdit, avatar: e.target.value })} dir="ltr" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">System Prompt</label>
+              <textarea className="w-full border p-2 rounded h-24 resize-none outline-none focus:border-[#00a884]" value={personaToEdit.systemPrompt} onChange={e => setPersonaToEdit({ ...personaToEdit, systemPrompt: e.target.value })} />
+              <div className="flex items-center gap-2 mt-2">
+                <button onClick={enhancePersonaPrompt} disabled={enhancingPrompt} className={`flex items-center gap-2 px-3 py-1.5 rounded text-white ${enhancingPrompt ? 'bg-gray-400' : 'bg-[#00a884] hover:bg-[#008f6f]'} `}>
+                  <Sparkles className="w-4 h-4" />
+                  {enhancingPrompt ? 'משפר...' : 'שפר פרומפט בעזרת המודל הנבחר'}
+                </button>
+                <span className="text-xs text-gray-500">משתמש במודל הדמות שנבחר</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">מודל לדמות זו</label>
+              <select value={personaToEdit.modelId || 'inherit'} onChange={e => setPersonaToEdit({ ...personaToEdit, modelId: e.target.value })} className="w-full border p-2 rounded outline-none focus:border-[#00a884] bg-white">
+                <option value="inherit">ברירת מחדל (לפי הגדרות)</option>
+                {availableModels.map(m => (<option key={m.id} value={m.id}>{m.name}</option>))}
+                <option value="custom">אחר (הזנה ידנית)...</option>
+              </select>
+              {(personaToEdit.modelId === 'custom') && (
+                <div className="mt-2">
+                  <label className="block text-xs text-gray-600 mb-1">Model ID</label>
+                  <input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={personaToEdit.customModel || ''} onChange={e => setPersonaToEdit({ ...personaToEdit, customModel: e.target.value })} dir="ltr" placeholder="e.g., anthropic/claude-3-opus" />
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">זיכרון הדמות</label>
+              <textarea className="w-full border p-2 rounded h-24 resize-none outline-none focus:border-[#00a884]" value={personaToEdit.memory || ''} onChange={e => setPersonaToEdit({ ...personaToEdit, memory: e.target.value })} placeholder="נקודות זיכרון" />
+              <div className="flex gap-2 mt-2">
+                <button onClick={() => setPersonaToEdit(prev => ({ ...prev, memory: '' }))} className="text-xs border px-2 py-1 rounded">נקה זיכרון</button>
+                <button onClick={() => { 
+                  setShowEditPersonaModal(false); 
+                  setCharacters(prev => prev.map(c => c.id === personaToEdit.id ? personaToEdit : c)); 
+                  setChats(prev => prev.map(ch => {
+                    if (ch.type === 'direct' && ch.participants.includes(personaToEdit.id)) {
+                      return { ...ch, name: personaToEdit.name, avatar: personaToEdit.avatar };
+                    }
+                    return ch;
+                  }));
+                }} className="ml-auto bg-[#00a884] text-white px-3 py-1 rounded">שמור</button>
+              </div>
+            </div>
           </div>
         </Modal>
       )}
@@ -493,6 +858,86 @@ export default function App() {
           </div>
         </Modal>
       )}
+
+      {showParticipantsModal && activeChat && activeChat.type === 'group' && (
+        <Modal title="משתתפי קבוצה" onClose={() => setShowParticipantsModal(false)}>
+          <div className="space-y-4">
+            <div className="max-h-[260px] overflow-y-auto border rounded">
+              {characters.map(char => {
+                const checked = participantsDraft.includes(char.id);
+                return (
+                  <label key={char.id} className="flex items-center justify-between px-3 py-2 border-b last:border-b-0 cursor-pointer">
+                    <div className="flex items-center gap-3">
+                      <img src={char.avatar} className="w-7 h-7 rounded-full" alt="" />
+                      <span>{char.name}</span>
+                    </div>
+                    <input type="checkbox" checked={checked} onChange={() => setParticipantsDraft(prev => checked ? prev.filter(id => id !== char.id) : [...prev, char.id])} />
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowParticipantsModal(false)} className="border px-3 py-2 rounded">בטל</button>
+              <button onClick={() => {
+                if (!participantsDraft.length) { alert('בחר/י לפחות דמות אחת.'); return; }
+                setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, participants: participantsDraft } : c));
+                setShowParticipantsModal(false);
+              }} className="ml-auto bg-[#00a884] text-white px-4 py-2 rounded">שמור</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {showGroupManageModal && activeChat && activeChat.type === 'group' && (
+        <Modal title="ניהול קבוצה" onClose={() => setShowGroupManageModal(false)}>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">שם הקבוצה</label>
+              <input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={groupEdit.name} onChange={e => setGroupEdit(prev => ({ ...prev, name: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">נושא הקבוצה (אופציונלי)</label>
+              <input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={groupEdit.topic} onChange={e => setGroupEdit(prev => ({ ...prev, topic: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">System Prompt של הקבוצה (אופציונלי)</label>
+              <textarea className="w-full border p-2 rounded h-24 resize-none outline-none focus:border-[#00a884]" value={groupEdit.systemPrompt} onChange={e => setGroupEdit(prev => ({ ...prev, systemPrompt: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">משתתפים</label>
+              <div className="max-h-[220px] overflow-y-auto border rounded">
+                {characters.map(char => {
+                  const checked = groupEdit.participants.includes(char.id);
+                  return (
+                    <label key={char.id} className="flex items-center justify-between px-3 py-2 border-b last:border-b-0 cursor-pointer">
+                      <div className="flex items-center gap-3">
+                        <img src={char.avatar} className="w-7 h-7 rounded-full" alt="" />
+                        <span>{char.name}</span>
+                      </div>
+                      <input type="checkbox" checked={checked} onChange={() => setGroupEdit(prev => ({ ...prev, participants: checked ? prev.participants.filter(id => id !== char.id) : [...prev.participants, char.id] }))} />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowGroupManageModal(false)} className="border px-3 py-2 rounded">בטל</button>
+              <button onClick={saveGroupEdits} className="ml-auto bg-[#00a884] text-white px-4 py-2 rounded">שמור</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      
+      {/* Mobile quick actions (hidden during chat to avoid covering input) */}
+      {view !== 'chat' && (
+        <MobileActionsBar 
+          onHome={() => setView('list')} 
+          onNewChat={() => setShowNewChatModal(true)} 
+          onNewGroup={() => setShowNewGroupModal(true)} 
+          onNewPersona={() => setShowNewCharModal(true)} 
+          onSettings={() => setShowSettingsModal(true)}
+        />
+      )}
     </div>
   );
 }
@@ -524,7 +969,7 @@ function ChatInput({ onSendMessage, disabled }) {
   };
 
   return (
-    <div className="bg-[#f0f2f5] px-4 py-2 flex flex-col z-10">
+    <div className="bg-[#f0f2f5] px-4 py-2 flex flex-col z-10" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 8px)' }}>
       {/* Image Preview */}
       {selectedImage && (
         <div className="flex p-2 bg-[#e9edef] rounded-t-lg mx-2 mb-[-5px] relative self-start border border-b-0 border-gray-300 z-0">
@@ -583,6 +1028,40 @@ function Modal({ title, children, onClose }) {
           <button onClick={onClose} className="hover:bg-white/20 rounded-full p-1 transition-colors"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-5 overflow-y-auto max-h-[80vh]">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// --- Avatar helpers ---
+function generateAvatarOptions(seedBase = 'User', count = 12) {
+  const styles = ['avataaars', 'adventurer', 'bottts', 'identicon', 'croodles-neutral', 'big-ears', 'notionists', 'pixel-art', 'shapes', 'glass', 'thumbs', 'lorelei'];
+  const options = [];
+  for (let i = 0; i < count; i++) {
+    const style = styles[i % styles.length];
+    const seed = encodeURIComponent(`${seedBase}-${i}-${Date.now() % 10000}`);
+    options.push(`https://api.dicebear.com/7.x/${style}/svg?seed=${seed}`);
+  }
+  return options;
+}
+
+function randomAvatar(seedBase = 'User') {
+  const styles = ['avataaars', 'adventurer', 'bottts', 'identicon', 'croodles-neutral', 'big-ears', 'notionists', 'pixel-art', 'shapes', 'glass', 'thumbs', 'lorelei'];
+  const style = styles[Math.floor(Math.random() * styles.length)];
+  const seed = encodeURIComponent(`${seedBase}-${Math.random().toString(36).slice(2)}`);
+  return `https://api.dicebear.com/7.x/${style}/svg?seed=${seed}`;
+}
+
+// --- Mobile actions bar ---
+function MobileActionsBar({ onHome, onNewChat, onNewGroup, onNewPersona, onSettings }) {
+  return (
+    <div className="md:hidden fixed bottom-0 left-0 right-0 z-[900] px-3 pb-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}>
+      <div className="mx-auto max-w-[680px] bg-white rounded-full shadow-lg border border-gray-200 flex justify-around items-center py-2">
+        <button onClick={onHome} className="p-2 text-[#54656f]" title="שיחות"><Home className="w-6 h-6"/></button>
+        <button onClick={onNewChat} className="p-2 text-[#54656f]" title="שיחה חדשה"><MessageSquare className="w-6 h-6"/></button>
+        <button onClick={onNewGroup} className="p-2 text-[#54656f]" title="קבוצה חדשה"><Users className="w-6 h-6"/></button>
+        <button onClick={onNewPersona} className="p-2 text-[#54656f]" title="דמות חדשה"><Bot className="w-6 h-6"/></button>
+        <button onClick={onSettings} className="p-2 text-[#54656f]" title="הגדרות"><Settings className="w-6 h-6"/></button>
       </div>
     </div>
   );

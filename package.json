@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "start": "vite --port 5555"
+    "start": "vite --port 5555 --host"
   },
   "dependencies": {
     "react": "^18.2.0",
