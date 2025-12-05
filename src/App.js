@@ -562,6 +562,9 @@ export default function App() {
                       <span className="text-[17px] text-[#111b21] font-normal truncate">{chat.name}</span>
                       {lastMsg && <span className="text-xs text-[#667781]">{new Date(lastMsg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>}
                     </div>
+                    {chat.type === 'group' && chat.topic && (
+                      <div className="text-[11px] text-[#8696a0] truncate">נושא: {chat.topic}</div>
+                    )}
                     <div className="flex items-center gap-1 text-[#667781] text-sm truncate h-5">
                       {chat.type === 'group' && lastMsg && lastMsg.senderId !== 'user' && (
                          <span className="font-bold text-xs text-gray-800">{characters.find(c => c.id === lastMsg.senderId)?.name}: </span>
@@ -596,8 +599,15 @@ export default function App() {
                   <div className="w-10 h-10 rounded-full overflow-hidden cursor-pointer"><img src={activeChat.avatar} alt="" className="w-full h-full object-cover" /></div>
                   <div className="cursor-pointer">
                     <div className="text-[#111b21] font-normal">{activeChat.name}</div>
-                    <div className="text-xs text-[#667781]">
+                    <div className="text-xs text-[#667781] flex items-center gap-2">
                        {typingStatus[activeChatId] ? <span className="text-[#00a884] font-medium animate-pulse">מקליד/ה...</span> : (activeChat.type === 'group' ? activeChat.participants.map(pid => characters.find(c => c.id === pid)?.name).join(', ') : 'מחובר/ת (AI)')}
+                       {activeChat.type === 'group' && (
+                         <button className="text-[11px] text-[#00a884] underline decoration-dotted" onClick={() => {
+                           const g = activeChat;
+                           setGroupEdit({ name: g.name || '', topic: g.topic || '', systemPrompt: g.systemPrompt || '', participants: Array.isArray(g.participants) ? [...g.participants] : [] });
+                           setShowGroupManageModal(true);
+                         }}>ערוך קבוצה</button>
+                       )}
                     </div>
                     {activeChat.type === 'group' && activeChat.topic && (
                       <div className="text-[11px] text-[#8696a0]">נושא: {activeChat.topic}</div>
