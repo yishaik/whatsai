@@ -1,0 +1,16 @@
+[Unit]
+Description=WhatsAI static preview (Vite preview)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/whatsai
+ExecStart=/usr/bin/npm run start:prod --silent
+Environment=PORT=8080
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+

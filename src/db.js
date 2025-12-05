@@ -1,46 +1,14 @@
-// Minimal IndexedDB key-value helper (no external deps)
+import { get, set } from 'idb-keyval';
 
-const DB_NAME = 'whatsai-db';
-const STORE = 'kv';
-const DB_VERSION = 1;
+export const idbGet = async (key) => {
+  return await get(key);
+};
 
-let dbPromise;
+export const idbSet = async (key, value) => {
+  return await set(key, value);
+};
 
-export function idbReady() {
-  if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
-    const open = indexedDB.open(DB_NAME, DB_VERSION);
-    open.onupgradeneeded = () => {
-      const db = open.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: 'k' });
-      }
-    };
-    open.onsuccess = () => resolve(open.result);
-    open.onerror = () => reject(open.error);
-  });
-  return dbPromise;
-}
-
-export async function idbGet(key) {
-  const db = await idbReady();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readonly');
-    const store = tx.objectStore(STORE);
-    const req = store.get(key);
-    req.onsuccess = () => resolve(req.result ? req.result.v : undefined);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-export async function idbSet(key, value) {
-  const db = await idbReady();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    const store = tx.objectStore(STORE);
-    const req = store.put({ k: key, v: value });
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
-}
-
+export const idbReady = () => {
+  // The library is always ready
+  return Promise.resolve();
+};

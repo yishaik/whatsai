@@ -1,0 +1,15 @@
+[Unit]
+Description=Cloudflare Tunnel - whatsai
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cloudflared
+ExecStart=/usr/local/bin/cloudflared tunnel --config /etc/cloudflared/whatsai.yml run whatsai
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
