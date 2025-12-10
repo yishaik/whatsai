@@ -22,6 +22,138 @@ import {
 } from 'lucide-react';
 import { idbGet, idbSet, idbReady } from './db.js';
 
+// --- Logging System ---
+const log = {
+  info: (...args) => console.log('[INFO]', ...args),
+  warn: (...args) => console.warn('[WARN]', ...args),
+  error: (...args) => console.error('[ERROR]', ...args),
+  debug: (...args) => {
+    if (import.meta.env.DEV) console.debug('[DEBUG]', ...args);
+  },
+  api: (...args) => {
+    if (import.meta.env.DEV) console.log('[API]', ...args);
+  }
+};
+
+// Error types
+const ErrorTypes = {
+  API_ERROR: 'API_ERROR',
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  NETWORK_ERROR: 'NETWORK_ERROR',
+  STORAGE_ERROR: 'STORAGE_ERROR',
+  UNKNOWN_ERROR: 'UNKNOWN_ERROR'
+};
+
+// Global error handler
+const handleError = (error, context = {}) => {
+  if (error instanceof Error) {
+    log.error(`${context.type || ErrorTypes.UNKNOWN_ERROR}: ${error.message}`, {
+      context: context,
+      stack: error.stack
+    });
+  } else {
+    log.error(`${context.type || ErrorTypes.UNKNOWN_ERROR}: ${String(error)}`, {
+      context: context
+    });
+  }
+
+  // Show user-friendly message if not already shown
+  if (!context.silent) {
+    const userMessage = getUserFriendlyErrorMessage(error, context);
+    if (userMessage) {
+      alert(userMessage);
+    }
+  }
+};
+
+const getUserFriendlyErrorMessage = (error, context) => {
+  if (typeof error === 'string') {
+    if (error.includes('API key')) return 'נא להגדיר מפתח API תקין בהגדרות.';
+    if (error.includes('network')) return 'בעיית רשת. נא לבדוק את החיבור לאינטרנט.';
+  }
+
+  if (error instanceof Error) {
+    if (error.message.includes('Failed to fetch')) return 'לא ניתן להתחבר לשרת. נא לבדוק את החיבור לאינטרנט.';
+    if (error.message.includes('401')) return 'מפתח API לא תקין או פג תוקף.';
+    if (error.message.includes('429')) return 'חרגת ממגבלת הבקשות. נא להמתין מספר דקות.';
+  }
+
+  switch (context.type) {
+    case ErrorTypes.API_ERROR:
+      return 'שגיאה בתקשורת עם שרת ה-AI. נא לנסות שוב מאוחר יותר.';
+    case ErrorTypes.VALIDATION_ERROR:
+      return context.message || 'נתונים לא תקינים. נא לבדוק את הקלט.';
+    case ErrorTypes.STORAGE_ERROR:
+      return 'שגיאה בשמירת נתונים. נא לנסות שוב.';
+    default:
+      return 'אירעה שגיאה. נא לנסות שוב או לבדוק את יומן השגיאות.';
+  }
+};
+
+// Error recovery mechanisms
+const ErrorRecovery = {
+  // Fallback responses when API fails
+  getFallbackResponse: (characterName) => {
+    const fallbackResponses = [
+      `סליחה, ${characterName}, יש בעיה טכנית. אני אנסה לעזור שוב בקרוב!`,
+      `אופס, משהו השתבש. אני עדיין כאן, אבל צריך לבדוק את המערכת.`,
+      `השרת עסוק כרגע. אני אנסה לתת מענה טוב יותר בהזדמנות אחרת.`,
+      `יש בעיה בחיבור. אני אנסה שוב מאוחר יותר.`
+    ];
+    return fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
+  },
+
+  // Check if we should retry based on error type
+  shouldRetry: (error, attemptCount) => {
+    if (attemptCount >= 3) return false;
+    
+    if (typeof error === 'string') {
+      if (error.includes('network') || error.includes('Failed to fetch')) return true;
+      if (error.includes('429')) return false; // Don't retry rate limits
+    }
+    
+    if (error instanceof Error) {
+      if (error.message.includes('Failed to fetch')) return true;
+      if (error.message.includes('429')) return false;
+    }
+    
+    return true; // Retry most errors
+  },
+
+  // Retry with exponential backoff
+  retryWithBackoff: async (fn, maxAttempts = 3, delayMs = 1000) => {
+    let attempt = 0;
+    let lastError = null;
+    
+    while (attempt < maxAttempts) {
+      try {
+        const result = await fn();
+        return result;
+      } catch (error) {
+        lastError = error;
+        attempt++;
+        
+        if (attempt < maxAttempts) {
+          const shouldRetry = ErrorRecovery.shouldRetry(error, attempt);
+          if (shouldRetry) {
+            const backoffDelay = delayMs * Math.pow(2, attempt - 1);
+            log.warn(`Attempt ${attempt} failed, retrying in ${backoffDelay}ms...`, { error: error.message });
+            await new Promise(resolve => setTimeout(resolve, backoffDelay));
+          } else {
+            break;
+          }
+        }
+      }
+    }
+    
+    throw lastError;
+  }
+};
+import Sidebar from './components/Sidebar';
+import ChatArea from './components/ChatArea';
+import ChatInput from './components/ChatInput';
+import Message from './components/Message';
+
 // --- Constants & Config ---
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const APP_NAME = "WhatsApp AI Generator";
@@ -59,6 +191,7 @@ const INITIAL_CHARACTERS = [
   }
 ];
 
+// Wrap the main App component with ErrorBoundary
 export default function App() {
   // --- State ---
   
@@ -95,15 +228,22 @@ export default function App() {
   const [showNewGroupModal, setShowNewGroupModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showEditPersonaModal, setShowEditPersonaModal] = useState(false);
+  const [showChatHistoryModal, setShowChatHistoryModal] = useState(false);
+  const [showPromptGeneratorModal, setShowPromptGeneratorModal] = useState(false);
+  const [chatHistoryToView, setChatHistoryToView] = useState(null);
   const [personaToEdit, setPersonaToEdit] = useState(null);
   const [enhancingPrompt, setEnhancingPrompt] = useState(false);
   const [showGroupManageModal, setShowGroupManageModal] = useState(false);
+  const [showParticipantsModal, setShowParticipantsModal] = useState(false);
   const [groupEdit, setGroupEdit] = useState({ name: '', topic: '', systemPrompt: '', participants: [] });
+  const [promptGeneratorInput, setPromptGeneratorInput] = useState('');
+  const [generatedPrompt, setGeneratedPrompt] = useState('');
 
   // Inputs State
   const [newCharData, setNewCharData] = useState({ name: '', avatar: '', systemPrompt: '', modelId: 'inherit', customModel: '' });
   const [selectedForGroup, setSelectedForGroup] = useState([]);
   const [groupName, setGroupName] = useState('');
+  const [participantsDraft, setParticipantsDraft] = useState([]);
   
   const messagesEndRef = useRef(null);
 
@@ -123,12 +263,57 @@ export default function App() {
     })();
   }, []);
   useEffect(() => { 
-    try { localStorage.setItem('app_characters', JSON.stringify(characters)); } catch {}
-    idbSet('app_characters', characters).catch(() => {});
+    try { 
+      localStorage.setItem('app_characters', JSON.stringify(characters));
+      log.debug('Saved characters to localStorage');
+    } catch (error) {
+      handleError(error, {
+        type: ErrorTypes.STORAGE_ERROR,
+        context: { 
+          storageType: 'localStorage',
+          dataType: 'characters',
+          silent: true
+        }
+      });
+    }
+    
+    idbSet('app_characters', characters).catch((error) => {
+      handleError(error, {
+        type: ErrorTypes.STORAGE_ERROR,
+        context: { 
+          storageType: 'IndexedDB',
+          dataType: 'characters',
+          silent: true
+        }
+      });
+    });
   }, [characters]);
+  
   useEffect(() => { 
-    try { localStorage.setItem('app_chats', JSON.stringify(chats)); } catch {}
-    idbSet('app_chats', chats).catch(() => {});
+    try { 
+      localStorage.setItem('app_chats', JSON.stringify(chats));
+      log.debug('Saved chats to localStorage');
+    } catch (error) {
+      handleError(error, {
+        type: ErrorTypes.STORAGE_ERROR,
+        context: { 
+          storageType: 'localStorage',
+          dataType: 'chats',
+          silent: true
+        }
+      });
+    }
+    
+    idbSet('app_chats', chats).catch((error) => {
+      handleError(error, {
+        type: ErrorTypes.STORAGE_ERROR,
+        context: { 
+          storageType: 'IndexedDB',
+          dataType: 'chats',
+          silent: true
+        }
+      });
+    });
   }, [chats]);
   useEffect(() => { localStorage.setItem('or_api_key', apiKey); }, [apiKey]);
   useEffect(() => { 
@@ -224,6 +409,81 @@ export default function App() {
     } catch (e) {
       console.error('Enhance prompt error', e);
       alert('שגיאה בשיפור הפרומפט.');
+    } finally {
+      setEnhancingPrompt(false);
+    }
+  };
+
+  const generateSystemPrompt = async () => {
+    if (!apiKey) {
+      alert('נא להגדיר מפתח API של OpenRouter בהגדרות.');
+      setShowSettingsModal(true);
+      return;
+    }
+    if (!promptGeneratorInput.trim()) return;
+    setEnhancingPrompt(true);
+    try {
+      const modelToUse = selectedModelId === 'custom' ? customModelInput : selectedModelId;
+      log.info('Generating system prompt with model:', modelToUse);
+      
+      const messages = [
+        { role: 'system', content: 'אתה מומחה ליצירת פרומפטים למערכות AI. צור פרומפט מערכת מקיף ויעיל עבור דמות וואטסאפ AI. הפורמט: אישיות, טון, כללי עשה/אל תעשה, הקשר שיחה, שפה, ואופי התגובות. הכל בקצרה וברור, ללא הסברים.' },
+        { role: 'user', content: `צור פרומפט מערכת עבור דמות עם התכונות הבאות:\n\n${promptGeneratorInput}\n\nהחזר רק את הפרומפט הסופי, ללא הסברים או הקדמות.` }
+      ];
+      
+      const res = await fetch(OPENROUTER_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': window.location.href,
+          'X-Title': APP_NAME,
+        },
+        body: JSON.stringify({ model: modelToUse, messages, temperature: 0.6, max_tokens: 500 })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        const errorMessage = errorData.error?.message || `HTTP error! status: ${res.status}`;
+        
+        handleError(errorMessage, {
+          type: ErrorTypes.API_ERROR,
+          context: {
+            function: 'generateSystemPrompt',
+            model: modelToUse
+          }
+        });
+        return;
+      }
+
+      const data = await res.json();
+      
+      if (data.error) {
+        handleError(data.error, {
+          type: ErrorTypes.API_ERROR,
+          context: {
+            function: 'generateSystemPrompt',
+            model: modelToUse
+          }
+        });
+        return;
+      }
+
+      const generated = data?.choices?.[0]?.message?.content?.trim();
+      if (generated) {
+        log.info('Successfully generated system prompt', { length: generated.length });
+        setGeneratedPrompt(generated);
+      } else {
+        log.warn('No prompt generated', { data });
+        alert('לא הצלחתי ליצור פרומפט. נא לנסות תיאור שונה.');
+      }
+    } catch (error) {
+      handleError(error, {
+        type: ErrorTypes.NETWORK_ERROR,
+        context: {
+          function: 'generateSystemPrompt'
+        }
+      });
     } finally {
       setEnhancingPrompt(false);
     }
@@ -357,6 +617,9 @@ export default function App() {
     const modelToUse = getModelForCharacter(character);
 
     try {
+      log.api(`Sending request to OpenRouter with model: ${modelToUse}`);
+      log.debug('Request payload:', { model: modelToUse, messages: messagesPayload.length, temperature: 0.7, max_tokens: 300 });
+
       const response = await fetch(OPENROUTER_API_URL, {
         method: "POST",
         headers: {
@@ -373,12 +636,57 @@ export default function App() {
         })
       });
 
-      const data = await response.json();
-      if (data.error) throw new Error(data.error.message);
-      return data.choices?.[0]?.message?.content || '';
+      log.api(`Received response with status: ${response.status}`);
 
-    } catch (err) {
-      return `(שגיאה: ${err.message || "תקלה בתקשורת"})`;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error?.message || errorData.message || `HTTP error! status: ${response.status}`;
+        
+        handleError(errorMessage, {
+          type: ErrorTypes.API_ERROR,
+          context: {
+            model: modelToUse,
+            status: response.status,
+            character: character.name
+          }
+        });
+        return `שגיאה: ${errorMessage}`;
+      }
+
+      const data = await response.json();
+      log.debug('API response:', data);
+
+      if (data.error) {
+        handleError(data.error, {
+          type: ErrorTypes.API_ERROR,
+          context: {
+            model: modelToUse,
+            character: character.name,
+            errorType: data.error.type
+          }
+        });
+        return `שגיאה: ${data.error.message}`;
+      }
+
+      if (!data.choices || data.choices.length === 0) {
+        log.warn('No choices returned from API', { data, character: character.name });
+        return 'לא קיבלתי תגובה מהדמות. נא לנסות שוב.';
+      }
+
+      const content = data.choices[0].message.content;
+      log.info('Successfully received AI response', { character: character.name, contentLength: content.length });
+      return content;
+
+    } catch (error) {
+      handleError(error, {
+        type: ErrorTypes.NETWORK_ERROR,
+        context: {
+          model: modelToUse,
+          character: character.name,
+          function: 'fetchOpenRouterResponse'
+        }
+      });
+      return 'שגיאה ברשת או בשרת. נא לבדוק את החיבור או לנסות שוב מאוחר יותר.';
     }
   };
 
@@ -521,217 +829,514 @@ export default function App() {
       <div className="relative z-10 flex w-full max-w-[1600px] h-full mx-auto shadow-lg overflow-hidden xl:my-5 xl:h-[calc(100vh-40px)] xl:rounded-xl bg-white">
         
         {/* SIDEBAR */}
-        <div className={`flex flex-col bg-white w-full md:w-[30%] lg:w-[30%] border-l border-gray-200 transition-all duration-300 ${view === 'chat' ? 'hidden md:flex' : 'flex'}`}>
-          {/* Header */}
-          <div className="bg-[#f0f2f5] px-4 py-3 flex justify-between items-center shrink-0 border-r border-gray-300">
-            <div className="w-10 h-10 rounded-full bg-gray-300 overflow-hidden cursor-pointer" onClick={() => setShowSettingsModal(true)}>
-               <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=UserMain" alt="Me" className="w-full h-full object-cover" />
-            </div>
-            <div className="flex gap-4 text-[#54656f]">
-              <button onClick={() => setShowSettingsModal(true)} title="הגדרות"><Settings className={`w-6 h-6 ${!apiKey ? 'text-red-500 animate-pulse' : ''}`} /></button>
-              <button onClick={() => setShowNewGroupModal(true)} title="קבוצה חדשה"><Users className="w-6 h-6" /></button>
-              <button onClick={() => setShowNewChatModal(true)} title="שיחה חדשה"><MessageSquare className="w-6 h-6" /></button>
-              <button onClick={() => setShowNewCharModal(true)} title="צור דמות AI"><Bot className="w-6 h-6" /></button>
-            </div>
-          </div>
-          
-          {/* Search */}
-          <div className="px-3 py-2 bg-white border-b border-gray-100">
-            <div className="bg-[#f0f2f5] rounded-lg px-4 py-1.5 flex items-center gap-4">
-              <Search className="w-5 h-5 text-[#54656f]" />
-              <input type="text" placeholder="חיפוש" className="bg-transparent border-none outline-none w-full text-sm placeholder:text-[#54656f]" />
-            </div>
-          </div>
-
-          {/* Chat List */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar bg-white">
-            {chats.length === 0 && <div className="p-4 text-center text-gray-400 text-sm mt-10">אין שיחות פעילות.</div>}
-            {chats.map(chat => {
-              const lastMsg = chat.messages[chat.messages.length - 1];
-              return (
-                <div 
-                  key={chat.id}
-                  onClick={() => { setActiveChatId(chat.id); setView('chat'); }}
-                  className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[#f5f6f6] border-b border-gray-100 group ${activeChatId === chat.id ? 'bg-[#f0f2f5]' : ''}`}
-                >
-                  <div className="w-12 h-12 rounded-full bg-gray-200 flex-shrink-0 overflow-hidden">
-                    <img src={chat.avatar} alt="" className="w-full h-full object-cover" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-baseline">
-                      <span className="text-[17px] text-[#111b21] font-normal truncate">{chat.name}</span>
-                      {lastMsg && <span className="text-xs text-[#667781]">{new Date(lastMsg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>}
-                    </div>
-                    {chat.type === 'group' && chat.topic && (
-                      <div className="text-[11px] text-[#8696a0] truncate">נושא: {chat.topic}</div>
-                    )}
-                    <div className="flex items-center gap-1 text-[#667781] text-sm truncate h-5">
-                      {chat.type === 'group' && lastMsg && lastMsg.senderId !== 'user' && (
-                         <span className="font-bold text-xs text-gray-800">{characters.find(c => c.id === lastMsg.senderId)?.name}: </span>
-                      )}
-                      <span className="truncate w-full flex items-center gap-1">
-                        {typingStatus[chat.id] ? <span className="text-[#00a884] italic">מקליד/ה...</span> : (
-                          <>
-                             {lastMsg?.image && <ImageIcon className="w-3 h-3 inline mr-1" />}
-                             {lastMsg ? (lastMsg.text || (lastMsg.image ? 'תמונה' : '')) : ''}
-                          </>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                  <button onClick={(e) => deleteChat(e, chat.id)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 p-1"><X className="w-4 h-4" /></button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <Sidebar
+          characters={characters}
+          chats={chats}
+          activeChatId={activeChatId}
+          view={view}
+          typingStatus={typingStatus}
+          apiKey={apiKey}
+          setView={setView}
+          setActiveChatId={setActiveChatId}
+          setShowNewCharModal={setShowNewCharModal}
+          setShowNewChatModal={setShowNewChatModal}
+          setShowNewGroupModal={setShowNewGroupModal}
+          setShowSettingsModal={setShowSettingsModal}
+          setShowPromptGeneratorModal={setShowPromptGeneratorModal}
+          setShowChatHistoryModal={setShowChatHistoryModal}
+          setChatHistoryToView={setChatHistoryToView}
+          deleteChat={deleteChat}
+        />
 
         {/* CHAT AREA */}
-        <div className={`bg-[#efeae2] flex-col w-full md:w-[70%] lg:w-[70%] relative ${view === 'list' ? 'hidden md:flex' : 'flex'}`}>
-          <div className="absolute inset-0 opacity-40 pointer-events-none z-0" style={{ backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")' }}></div>
-
-          {activeChatId ? (
-            <>
-              {/* Top Bar */}
-              <div className="bg-[#f0f2f5] px-4 py-2.5 flex justify-between items-center shrink-0 z-10 border-l border-gray-300 sticky top-0">
-                <div className="flex items-center gap-4">
-                  <button className="md:hidden" onClick={() => setView('list')}><ArrowRight className="w-6 h-6 text-[#54656f]" /></button>
-                  <div className="w-10 h-10 rounded-full overflow-hidden cursor-pointer"><img src={activeChat.avatar} alt="" className="w-full h-full object-cover" /></div>
-                  <div className="cursor-pointer">
-                    <div className="text-[#111b21] font-normal">{activeChat.name}</div>
-                    <div className="text-xs text-[#667781] flex items-center gap-2">
-                       {typingStatus[activeChatId] ? <span className="text-[#00a884] font-medium animate-pulse">מקליד/ה...</span> : (activeChat.type === 'group' ? activeChat.participants.map(pid => characters.find(c => c.id === pid)?.name).join(', ') : 'מחובר/ת (AI)')}
-                       {activeChat.type === 'group' && (
-                         <button className="text-[11px] text-[#00a884] underline decoration-dotted" onClick={() => {
-                           const g = activeChat;
-                           setGroupEdit({ name: g.name || '', topic: g.topic || '', systemPrompt: g.systemPrompt || '', participants: Array.isArray(g.participants) ? [...g.participants] : [] });
-                           setShowGroupManageModal(true);
-                         }}>ערוך קבוצה</button>
-                       )}
-                    </div>
-                    {activeChat.type === 'group' && activeChat.topic && (
-                      <div className="text-[11px] text-[#8696a0]">נושא: {activeChat.topic}</div>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 text-[#54656f]">
-                  <Search className="w-5 h-5 cursor-pointer" />
-                  {activeChat.type === 'group' && (
-                    <Users 
-                      className="w-5 h-5 cursor-pointer" 
-                      title="משתתפים"
-                      onClick={() => { setParticipantsDraft(activeChat.participants || []); setShowParticipantsModal(true); }}
-                    />
-                  )}
-                  <MoreVertical 
-                    className="w-5 h-5 cursor-pointer" 
-                    onClick={() => {
-                      if (activeChat.type === 'direct') {
-                        const pid = activeChat.participants[0];
-                        const persona = characters.find(c => c.id === pid);
-                        if (persona) { setPersonaToEdit(persona); setShowEditPersonaModal(true); }
-                      } else {
-                        const g = activeChat;
-                        setGroupEdit({ name: g.name || '', topic: g.topic || '', systemPrompt: g.systemPrompt || '', participants: Array.isArray(g.participants) ? [...g.participants] : [] });
-                        setShowGroupManageModal(true);
-                      }
-                    }}
-                    title="עריכה"
-                  />
-                </div>
-              </div>
-
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 z-10 custom-scrollbar flex flex-col">
-                {activeChat.messages.map((msg) => {
-                  const isUser = msg.senderId === 'user';
-                  const senderChar = !isUser ? characters.find(c => c.id === msg.senderId) : null;
-                  return (
-                    <div key={msg.id} className={`flex flex-col mb-2 max-w-[85%] md:max-w-[65%] ${isUser ? 'self-end items-end' : 'self-start items-start'}`}>
-                      <div className={`rounded-lg p-1.5 relative shadow-sm text-sm md:text-[15px] leading-relaxed ${isUser ? 'bg-[#d9fdd3] rounded-tr-none' : 'bg-white rounded-tl-none'}`}>
-                        {!isUser && activeChat.type === 'group' && senderChar && <div className={`text-xs font-bold mb-1 px-1 ${senderChar.color || 'text-orange-500'}`}>{senderChar.name}</div>}
-                        
-                        {/* Image Render */}
-                        {msg.image && (
-                          <div className="mb-1 rounded-md overflow-hidden">
-                            <img src={msg.image} alt="attachment" className="max-w-full max-h-[300px] object-cover" />
-                          </div>
-                        )}
-                        
-                        {msg.text && <div className="px-2 pb-1 pt-1 whitespace-pre-wrap" dir="auto">{msg.text}</div>}
-                        
-                        <div className="float-left px-2 pb-1 flex items-end gap-1 select-none">
-                           <span className="text-[10px] text-[#667781]">{new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                           {isUser && <span className="text-[#53bdeb] text-[14px]">✓✓</span>}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                <div ref={messagesEndRef} />
-              </div>
-
-              <ChatInput onSendMessage={handleSendMessage} disabled={!apiKey} />
-            </>
-          ) : (
-            <div className="hidden md:flex flex-col items-center justify-center h-full bg-[#f0f2f5] border-b-[6px] border-[#25d366] z-10">
-               <Bot className="w-32 h-32 text-[#d1d7db] mb-6" />
-               <h1 className="text-3xl text-[#41525d] font-light mb-4">WhatsApp AI Generator</h1>
-               <div className="text-[#667781] text-sm text-center max-w-md leading-6">
-                 כעת כולל תמיכה בתמונות (Vision)!<br/>שלח תמונה לדמות והיא תגיב למה שהיא רואה.
-               </div>
-               {!apiKey && <button onClick={() => setShowSettingsModal(true)} className="mt-6 bg-[#00a884] text-white px-6 py-2 rounded-full hover:bg-[#008f6f] shadow-sm">הגדר מפתח API להתחלה</button>}
-            </div>
-          )}
-        </div>
+        <ChatArea
+          activeChat={activeChat}
+          characters={characters}
+          view={view}
+          typingStatus={typingStatus}
+          activeChatId={activeChatId}
+          messagesEndRef={messagesEndRef}
+          apiKey={apiKey}
+          setView={setView}
+          setShowGroupManageModal={setShowGroupManageModal}
+          setGroupEdit={setGroupEdit}
+          setShowParticipantsModal={setShowParticipantsModal}
+          setParticipantsDraft={setParticipantsDraft}
+          setShowEditPersonaModal={setShowEditPersonaModal}
+          setPersonaToEdit={setPersonaToEdit}
+          handleSendMessage={handleSendMessage}
+        />
       </div>
 
       {/* --- MODALS --- */}
       {showSettingsModal && (
         <Modal title="הגדרות מערכת" onClose={() => setShowSettingsModal(false)}>
-           <div className="space-y-5">
-               <div>
-                   <label className="block text-sm font-bold text-gray-700 mb-1">OpenRouter API Key</label>
-                   <input type="password" className="w-full border border-gray-300 rounded p-2 ltr bg-gray-50 outline-none focus:border-[#00a884]" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-or-v1-..." dir="ltr" />
-               </div>
-               <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">בחירת מודל AI</label>
-                  <select value={selectedModelId} onChange={(e) => setSelectedModelId(e.target.value)} className="w-full border border-gray-300 rounded p-2 bg-white outline-none focus:border-[#00a884]">
-                    {availableModels.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
-                    <option value="custom">אחר (הזנה ידנית)...</option>
-                  </select>
-               </div>
-               {selectedModelId === 'custom' && (
-                 <div className="animate-in fade-in slide-in-from-top-2 duration-200">
-                    <label className="block text-sm font-medium text-gray-600 mb-1">Model ID</label>
-                    <input type="text" className="w-full border border-gray-300 rounded p-2 ltr bg-gray-50 outline-none" value={customModelInput} onChange={(e) => setCustomModelInput(e.target.value)} placeholder="e.g., anthropic/claude-3-opus" dir="ltr" />
-                 </div>
-               )}
-               <div className="flex items-center gap-2">
-                 <input id="dtmeta" type="checkbox" checked={includeDateTimeMeta} onChange={e => setIncludeDateTimeMeta(e.target.checked)} />
-                 <label htmlFor="dtmeta" className="text-sm">הכלל תאריך ושעה במטא-נתונים</label>
-               </div>
-               <div className="flex items-center gap-2">
-                 <input id="groupmeta" type="checkbox" checked={includeGroupMeta} onChange={e => setIncludeGroupMeta(e.target.checked)} />
-                 <label htmlFor="groupmeta" className="text-sm">הכלל פרטי קבוצה והקשר</label>
-               </div>
-               <div className="flex items-center gap-2">
-                 <input id="memtoggle" type="checkbox" checked={enableMemory} onChange={e => setEnableMemory(e.target.checked)} />
-                 <label htmlFor="memtoggle" className="text-sm">הפעל זיכרון וסיכום שיחה</label>
-               </div>
-               <button onClick={() => {
-                 if (confirm('לאפס את הזיכרון לכל הדמויות ואת סיכומי השיחות?')) {
-                   setCharacters(prev => prev.map(c => ({ ...c, memory: '' })));
-                   setChats(prev => prev.map(c => ({ ...c, summary: '' })));
-                 }
-               }} className="w-full border border-gray-300 text-gray-700 py-2 rounded hover:bg-gray-50">אפס זיכרון</button>
-               <button onClick={() => setShowSettingsModal(false)} className="w-full bg-[#00a884] text-white py-2 rounded hover:bg-[#008f6f] mt-4">שמור וסגור</button>
-           </div>
+          <div className="space-y-5">
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">OpenRouter API Key</label>
+              <input type="password" className="w-full border border-gray-300 rounded p-2 ltr bg-gray-50 outline-none focus:border-[#00a884]" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-or-v1-..." dir="ltr" />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">בחירת מודל AI</label>
+              <select value={selectedModelId} onChange={(e) => setSelectedModelId(e.target.value)} className="w-full border border-gray-300 rounded p-2 bg-white outline-none focus:border-[#00a884]">
+                {availableModels.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
+                <option value="custom">אחר (הזנה ידנית)...</option>
+              </select>
+            </div>
+            {selectedModelId === 'custom' && (
+              <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                <label className="block text-sm font-medium text-gray-600 mb-1">Model ID</label>
+                <input type="text" className="w-full border border-gray-300 rounded p-2 ltr bg-gray-50 outline-none" value={customModelInput} onChange={(e) => setCustomModelInput(e.target.value)} placeholder="e.g., anthropic/claude-3-opus" dir="ltr" />
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <input id="dtmeta" type="checkbox" checked={includeDateTimeMeta} onChange={e => setIncludeDateTimeMeta(e.target.checked)} />
+              <label htmlFor="dtmeta" className="text-sm">הכלל תאריך ושעה במטא-נתונים</label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input id="groupmeta" type="checkbox" checked={includeGroupMeta} onChange={e => setIncludeGroupMeta(e.target.checked)} />
+              <label htmlFor="groupmeta" className="text-sm">הכלל פרטי קבוצה והקשר</label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input id="memtoggle" type="checkbox" checked={enableMemory} onChange={e => setEnableMemory(e.target.checked)} />
+              <label htmlFor="memtoggle" className="text-sm">הפעל זיכרון וסיכום שיחה</label>
+            </div>
+            <button onClick={() => {
+              if (confirm('לאפס את הזיכרון לכל הדמויות ואת סיכומי השיחות?')) {
+                setCharacters(prev => prev.map(c => ({ ...c, memory: '' })));
+                setChats(prev => prev.map(c => ({ ...c, summary: '' })));
+              }
+            }} className="w-full border border-gray-300 text-gray-700 py-2 rounded hover:bg-gray-50">אפס זיכרון</button>
+            <button onClick={() => setShowSettingsModal(false)} className="w-full bg-[#00a884] text-white py-2 rounded hover:bg-[#008f6f] mt-4">שמור וסגור</button>
+          </div>
         </Modal>
       )}
       
       {showNewCharModal && (
         <Modal title="יצירת דמות חדשה" onClose={() => setShowNewCharModal(false)}>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">שם</label>
+              <input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={newCharData.name} onChange={e => setNewCharData({...newCharData, name: e.target.value})} />
+            </div>
+            <div className="space-y-3">
+              <label className="block text-sm text-gray-600 font-medium">בחר/י או הזן תמונה</label>
+              <div className="grid grid-cols-8 gap-2 max-h-[160px] overflow-y-auto p-2 bg-gray-50 rounded-lg border">
+                {generateAvatarOptions(newCharData.name || 'User', 24).map((url, i) => (
+                  <button key={i} type="button" onClick={() => setNewCharData({ ...newCharData, avatar: url })} 
+                          className={`rounded-full border-2 overflow-hidden w-12 h-12 transition-all duration-200 ${newCharData.avatar === url ? 'border-[#00a884] ring-2 ring-[#00a884]/20' : 'border-transparent hover:border-gray-300'}`}>
+                    <img src={url} alt="avatar" className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <button type="button" onClick={() => setNewCharData(prev => ({ ...prev, avatar: '' }))} className="text-xs text-gray-600 underline hover:text-red-500">נקה בחירה</button>
+                <button type="button" onClick={() => setNewCharData(prev => ({ ...prev, avatar: randomAvatar(prev.name || 'User') }))} className="flex items-center gap-1 text-xs text-[#00a884] hover:text-[#008f6f]"><RefreshCcw className="w-3 h-3"/>אקראי</button>
+                <button type="button" onClick={() => {
+                  // Generate more diverse avatars
+                  const newAvatars = generateAvatarOptions(newCharData.name || 'User', 24);
+                  // This will refresh the grid by forcing a re-render
+                  setNewCharData(prev => ({ ...prev, avatar: prev.avatar }));
+                }} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"><RefreshCcw className="w-3 h-3"/>רענן אפשרויות</button>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">או הזן כתובת תמונה (URL)</label>
+                <input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={newCharData.avatar} onChange={e => setNewCharData({...newCharData, avatar: e.target.value})} dir="ltr" placeholder="https://example.com/image.jpg" />
+              </div>
+              {newCharData.avatar && (
+                <div className="flex items-center gap-3 p-2 bg-gray-50 rounded border">
+                  <div className="text-sm text-gray-600">תצוגה מקדימה:</div>
+                  <img src={newCharData.avatar} alt="Preview" className="w-10 h-10 rounded-full object-cover border" />
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">System Prompt</label>
+              <textarea className="w-full border p-2 rounded h-24 resize-none outline-none focus:border-[#00a884]" value={newCharData.systemPrompt} onChange={e => setNewCharData({...newCharData, systemPrompt: e.target.value})} />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">מודל לדמות זו</label>
+              <select value={newCharData.modelId} onChange={e => setNewCharData({ ...newCharData, modelId: e.target.value })} className="w-full border p-2 rounded outline-none focus:border-[#00a884] bg-white">
+                <option value="inherit">ברירת מחדל (לפי הגדרות)</option>
+                {availableModels.map(m => (<option key={m.id} value={m.id}>{m.name}</option>))}
+                <option value="custom">אחר (הזנה ידנית)...</option>
+              </select>
+              {newCharData.modelId === 'custom' && (
+                <div className="mt-2">
+                  <label className="block text-xs text-gray-600 mb-1">Model ID</label>
+                  <input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={newCharData.customModel} onChange={e => setNewCharData({ ...newCharData, customModel: e.target.value })} dir="ltr" placeholder="e.g., anthropic/claude-3-opus" />
+                </div>
+              )}
+            </div>
+            <button onClick={createCharacter} className="w-full bg-[#00a884] text-white py-2 rounded hover:bg-[#008f6f]" disabled={!newCharData.name}>צור דמות</button>
+          </div>
+        </Modal>
+      )}
+      
+      {showChatHistoryModal && chatHistoryToView && (
+        <Modal title={`היסטוריית שיחות: ${chatHistoryToView.name}`} onClose={() => setShowChatHistoryModal(false)}>
+          <div className="space-y-4">
+            <div className="max-h-[60vh] overflow-y-auto border rounded p-3 bg-gray-50">
+              {chatHistoryToView.messages.length > 0 ? (
+                chatHistoryToView.messages.map((msg, index) => {
+                  const senderName = msg.senderId === 'user' ? 'אתה' : (characters.find(c => c.id === msg.senderId)?.name || 'לא ידוע');
+                  return (
+                    <div key={index} className={`mb-3 p-2 rounded ${msg.senderId === 'user' ? 'bg-blue-50 ml-auto' : 'bg-green-50 mr-auto'} max-w-[80%]`}>
+                      <div className="font-medium text-sm">{senderName}</div>
+                      <div className="text-sm mt-1">{msg.text}</div>
+                      {msg.image && (
+                        <div className="mt-2 rounded overflow-hidden">
+                          <img src={msg.image} alt="תמונה" className="max-w-full max-h-[200px] object-cover" />
+                        </div>
+                      )}
+                      <div className="text-xs text-gray-500 mt-1">{new Date(msg.timestamp).toLocaleString()}</div>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-gray-500">אין הודעות בהיסטוריה.</p>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => {
+                // Export chat history
+                const chatText = chatHistoryToView.messages.map(msg => {
+                  const senderName = msg.senderId === 'user' ? 'אתה' : (characters.find(c => c.id === msg.senderId)?.name || 'לא ידוע');
+                  return `${new Date(msg.timestamp).toLocaleString()} - ${senderName}: ${msg.text}`;
+                }).join('\n\n');
+                
+                const blob = new Blob([chatText], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `היסטוריה_${chatHistoryToView.name}_${new Date().toISOString().slice(0,10)}.txt`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }} className="border px-3 py-2 rounded flex items-center gap-1">
+                <Paperclip className="w-4 h-4"/> ייצא טקסט
+              </button>
+              <button onClick={() => setShowChatHistoryModal(false)} className="ml-auto bg-[#00a884] text-white px-4 py-2 rounded">סגור</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {showPromptGeneratorModal && (
+        <Modal title="יצירת פרומפט מערכת עם AI" onClose={() => setShowPromptGeneratorModal(false)}>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">תיאור הדמות או הרעיון</label>
+              <textarea 
+                className="w-full border p-2 rounded h-32 resize-none outline-none focus:border-[#00a884]"
+                value={promptGeneratorInput}
+                onChange={e => setPromptGeneratorInput(e.target.value)}
+                placeholder="תאר/י את הדמות, האישיות, התפקיד, והמטרה. למשל: 'חבר כיפי שמתמחה במתכונים מהירים, משתמש בסלנג, ונותן טיפים בישול קצרים'"
+              />
+            </div>
+            {generatedPrompt && (
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">פרומפט שנוצר</label>
+                <textarea 
+                  className="w-full border p-2 rounded h-32 resize-none outline-none focus:border-[#00a884] bg-gray-50"
+                  value={generatedPrompt}
+                  readOnly
+                />
+                <div className="flex gap-2 mt-2">
+                  <button onClick={() => navigator.clipboard.writeText(generatedPrompt)} className="text-xs border px-2 py-1 rounded flex items-center gap-1">
+                    <Paperclip className="w-3 h-3"/> העתק
+                  </button>
+                  <button onClick={() => {
+                    setPromptGeneratorInput('');
+                    setGeneratedPrompt('');
+                  }} className="text-xs border px-2 py-1 rounded">ניקוי</button>
+                </div>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button onClick={() => setShowPromptGeneratorModal(false)} className="border px-3 py-2 rounded">בטל</button>
+              <button onClick={generateSystemPrompt} disabled={enhancingPrompt} className={`ml-auto bg-[#00a884] text-white px-4 py-2 rounded flex items-center gap-2 ${enhancingPrompt ? 'opacity-70' : 'hover:bg-[#008f6f]'}`}>
+                <Sparkles className="w-4 h-4"/>{enhancingPrompt ? 'יוצר...' : 'צור פרומפט'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {showEditPersonaModal && personaToEdit && (
+        <Modal title={`עריכת דמות: ${personaToEdit.name}`} onClose={() => setShowEditPersonaModal(false)}>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">שם</label>
+              <input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={personaToEdit.name} onChange={e => setPersonaToEdit({ ...personaToEdit, name: e.target.value })} />
+            </div>
+            <div className="space-y-3">
+              <label className="block text-sm text-gray-600 font-medium">בחר/י או הזן תמונה</label>
+              <div className="grid grid-cols-8 gap-2 max-h-[160px] overflow-y-auto p-2 bg-gray-50 rounded-lg border">
+                {generateAvatarOptions(personaToEdit.name || 'User', 24).map((url, i) => (
+                  <button key={i} type="button" onClick={() => setPersonaToEdit({ ...personaToEdit, avatar: url })} 
+                          className={`rounded-full border-2 overflow-hidden w-12 h-12 transition-all duration-200 ${personaToEdit.avatar === url ? 'border-[#00a884] ring-2 ring-[#00a884]/20' : 'border-transparent hover:border-gray-300'}`}>
+                    <img src={url} alt="avatar" className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <button type="button" onClick={() => setPersonaToEdit(prev => ({ ...prev, avatar: '' }))} className="text-xs text-gray-600 underline hover:text-red-500">נקה בחירה</button>
+                <button type="button" onClick={() => setPersonaToEdit(prev => ({ ...prev, avatar: randomAvatar(prev.name || 'User') }))} className="flex items-center gap-1 text-xs text-[#00a884] hover:text-[#008f6f]"><RefreshCcw className="w-3 h-3"/>אקראי</button>
+                <button type="button" onClick={() => {
+                  // Generate more diverse avatars
+                  const newAvatars = generateAvatarOptions(personaToEdit.name || 'User', 24);
+                  // This will refresh the grid by forcing a re-render
+                  setPersonaToEdit(prev => ({ ...prev, avatar: prev.avatar }));
+                }} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"><RefreshCcw className="w-3 h-3"/>רענן אפשרויות</button>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">או הזן כתובת תמונה (URL)</label>
+                <input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={personaToEdit.avatar} onChange={e => setPersonaToEdit({...personaToEdit, avatar: e.target.value})} dir="ltr" placeholder="https://example.com/image.jpg" />
+              </div>
+              {personaToEdit.avatar && (
+                <div className="flex items-center gap-3 p-2 bg-gray-50 rounded border">
+                  <div className="text-sm text-gray-600">תצוגה מקדימה:</div>
+                  <img src={personaToEdit.avatar} alt="Preview" className="w-10 h-10 rounded-full object-cover border" />
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">System Prompt</label>
+              <textarea className="w-full border p-2 rounded h-24 resize-none outline-none focus:border-[#00a884]" value={personaToEdit.systemPrompt} onChange={e => setPersonaToEdit({...personaToEdit, systemPrompt: e.target.value})} />
+              <div className="flex gap-2 mt-2">
+                <button onClick={enhancePersonaPrompt} disabled={enhancingPrompt} className="text-xs border px-2 py-1 rounded flex items-center gap-1">
+                  <Sparkles className="w-3 h-3"/>{enhancingPrompt ? 'משפר...' : 'שפר עם AI'}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">מודל לדמות זו</label>
+              <select value={personaToEdit.modelId || 'inherit'} onChange={e => setPersonaToEdit({ ...personaToEdit, modelId: e.target.value })} className="w-full border p-2 rounded outline-none focus:border-[#00a884] bg-white">
+                <option value="inherit">ברירת מחדל (לפי הגדרות)</option>
+                {availableModels.map(m => (<option key={m.id} value={m.id}>{m.name}</option>))}
+                <option value="custom">אחר (הזנה ידנית)...</option>
+              </select>
+              {(personaToEdit.modelId === 'custom') && (
+                <div className="mt-2">
+                  <label className="block text-xs text-gray-600 mb-1">Model ID</label>
+                  <input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={personaToEdit.customModel || ''} onChange={e => setPersonaToEdit({ ...personaToEdit, customModel: e.target.value })} dir="ltr" placeholder="e.g., anthropic/claude-3-opus" />
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">זיכרון הדמות</label>
+              <textarea className="w-full border p-2 rounded h-24 resize-none outline-none focus:border-[#00a884]" value={personaToEdit.memory || ''} onChange={e => setPersonaToEdit({ ...personaToEdit, memory: e.target.value })} placeholder="נקודות זיכרון" />
+              <div className="flex gap-2 mt-2">
+                <button onClick={() => setPersonaToEdit(prev => ({ ...prev, memory: '' }))} className="text-xs border px-2 py-1 rounded">נקה זיכרון</button>
+                <button onClick={() => {
+                  // Find chat history for this persona
+                  const personaChats = chats.filter(c => c.type === 'direct' && c.participants.includes(personaToEdit.id));
+                  if (personaChats.length > 0) {
+                    // Combine all chats into one for viewing
+                    const combinedChat = {
+                      name: personaToEdit.name,
+                      messages: personaChats.flatMap(c => c.messages)
+                    };
+                    setChatHistoryToView(combinedChat);
+                    setShowChatHistoryModal(true);
+                  } else {
+                    alert('אין היסטוריית שיחות עם דמות זו.');
+                  }
+                }} className="text-xs border px-2 py-1 rounded">צפה בהיסטוריה</button>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowEditPersonaModal(false)} className="border px-3 py-2 rounded">בטל</button>
+              <button onClick={() => {  
+                  setShowEditPersonaModal(false);  
+                  setCharacters(prev => prev.map(c => c.id === personaToEdit.id ? personaToEdit : c));  
+                  setChats(prev => prev.map(ch => {  
+                    if (ch.type === 'direct' && ch.participants.includes(personaToEdit.id)) {  
+                      return { ...ch, name: personaToEdit.name, avatar: personaToEdit.avatar };  
+                    }  
+                    return ch;  
+                  }));  
+                }} className="ml-auto bg-[#00a884] text-white px-4 py-2 rounded">שמור שינויים</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      
+      {showNewChatModal && (
+        <NewChatModal
+          characters={characters}
+          startDirectChat={startDirectChat}
+          onClose={() => setShowNewChatModal(false)}
+        />
+      )}
+      
+      {showNewGroupModal && (
+        <NewGroupModal
+          characters={characters}
+          selectedForGroup={selectedForGroup}
+          setSelectedForGroup={setSelectedForGroup}
+          groupName={groupName}
+          setGroupName={setGroupName}
+          createGroupChat={createGroupChat}
+          onClose={() => setShowNewGroupModal(false)}
+        />
+      )}
+      
+      {showParticipantsModal && activeChat && activeChat.type === 'group' && (
+        <Modal title="משתתפי קבוצה" onClose={() => setShowParticipantsModal(false)}>
+          <div className="space-y-4">
+            <div className="max-h-[260px] overflow-y-auto border rounded">
+              {characters.map(char => {
+                const checked = participantsDraft.includes(char.id);
+                return (
+                  <label key={char.id} className="flex items-center justify-between px-3 py-2 border-b last:border-b-0 cursor-pointer">
+                    <div className="flex items-center gap-3">
+                      <img src={char.avatar} className="w-7 h-7 rounded-full" alt="" />
+                      <span>{char.name}</span>
+                    </div>
+                    <input type="checkbox" checked={checked} onChange={() => setParticipantsDraft(prev => checked ? prev.filter(id => id !== char.id) : [...prev, char.id])} />
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowParticipantsModal(false)} className="border px-3 py-2 rounded">בטל</button>
+              <button onClick={() => {
+                if (!participantsDraft.length) { alert('בחר/י לפחות דמות אחת.'); return; }
+                setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, participants: participantsDraft } : c));
+                setShowParticipantsModal(false);
+              }} className="ml-auto bg-[#00a884] text-white px-4 py-2 rounded">שמור</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      
+      {showGroupManageModal && activeChat && activeChat.type === 'group' && (
+        <Modal title="ניהול קבוצה" onClose={() => setShowGroupManageModal(false)}>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">שם הקבוצה</label>
+              <input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={groupEdit.name} onChange={e => setGroupEdit(prev => ({ ...prev, name: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">נושא הקבוצה (אופציונלי)</label>
+              <input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={groupEdit.topic} onChange={e => setGroupEdit(prev => ({ ...prev, topic: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">System Prompt של הקבוצה (אופציונלי)</label>
+              <textarea className="w-full border p-2 rounded h-24 resize-none outline-none focus:border-[#00a884]" value={groupEdit.systemPrompt} onChange={e => setGroupEdit(prev => ({ ...prev, systemPrompt: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">משתתפים</label>
+              <div className="max-h-[220px] overflow-y-auto border rounded">
+                {characters.map(char => {
+                  const checked = groupEdit.participants.includes(char.id);
+                  return (
+                    <label key={char.id} className="flex items-center justify-between px-3 py-2 border-b last:border-b-0 cursor-pointer">
+                      <div className="flex items-center gap-3">
+                        <img src={char.avatar} className="w-7 h-7 rounded-full" alt="" />
+                        <span>{char.name}</span>
+                      </div>
+                      <input type="checkbox" checked={checked} onChange={() => setGroupEdit(prev => ({ ...prev, participants: checked ? prev.participants.filter(id => id !== char.id) : [...prev.participants, char.id] }))} />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowGroupManageModal(false)} className="border px-3 py-2 rounded">בטל</button>
+              <button onClick={saveGroupEdits} className="ml-auto bg-[#00a884] text-white px-4 py-2 rounded">שמור</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      
+      {/* Mobile quick actions (hidden during chat to avoid covering input) */}
+      {view !== 'chat' && (
+        <MobileActionsBar 
+          onHome={() => setView('list')} 
+          onNewChat={() => setShowNewChatModal(true)} 
+          onNewGroup={() => setShowNewGroupModal(true)} 
+          onNewPersona={() => setShowNewCharModal(true)} 
+          onSettings={() => setShowSettingsModal(true)}
+        />
+      )}
+    </div>
+  );
+}
+
+// --- Modal Components ---
+function SettingsModal({ 
+  apiKey, setApiKey, 
+  availableModels, selectedModelId, setSelectedModelId, 
+  customModelInput, setCustomModelInput, 
+  enableMemory, setEnableMemory, 
+  includeDateTimeMeta, setIncludeDateTimeMeta, 
+  includeGroupMeta, setIncludeGroupMeta, 
+  setCharacters, setChats, 
+  onClose 
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-md rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="bg-[#008069] text-white px-4 py-3 flex justify-between items-center shadow-md">
+          <h3 className="font-medium text-lg">הגדרות מערכת</h3>
+          <button onClick={onClose} className="hover:bg-white/20 rounded-full p-1 transition-colors"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 overflow-y-auto max-h-[80vh]">
+          <div className="space-y-5">
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">OpenRouter API Key</label>
+              <input type="password" className="w-full border border-gray-300 rounded p-2 ltr bg-gray-50 outline-none focus:border-[#00a884]" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-or-v1-..." dir="ltr" />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">בחירת מודל AI</label>
+              <select value={selectedModelId} onChange={(e) => setSelectedModelId(e.target.value)} className="w-full border border-gray-300 rounded p-2 bg-white outline-none focus:border-[#00a884]">
+                {availableModels.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
+                <option value="custom">אחר (הזנה ידנית)...</option>
+              </select>
+            </div>
+            {selectedModelId === 'custom' && (
+              <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                <label className="block text-sm font-medium text-gray-600 mb-1">Model ID</label>
+                <input type="text" className="w-full border border-gray-300 rounded p-2 ltr bg-gray-50 outline-none" value={customModelInput} onChange={(e) => setCustomModelInput(e.target.value)} placeholder="e.g., anthropic/claude-3-opus" dir="ltr" />
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <input id="dtmeta" type="checkbox" checked={includeDateTimeMeta} onChange={e => setIncludeDateTimeMeta(e.target.checked)} />
+              <label htmlFor="dtmeta" className="text-sm">הכלל תאריך ושעה במטא-נתונים</label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input id="groupmeta" type="checkbox" checked={includeGroupMeta} onChange={e => setIncludeGroupMeta(e.target.checked)} />
+              <label htmlFor="groupmeta" className="text-sm">הכלל פרטי קבוצה והקשר</label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input id="memtoggle" type="checkbox" checked={enableMemory} onChange={e => setEnableMemory(e.target.checked)} />
+              <label htmlFor="memtoggle" className="text-sm">הפעל זיכרון וסיכום שיחה</label>
+            </div>
+            <button onClick={() => {
+              if (confirm('לאפס את הזיכרון לכל הדמויות ואת סיכומי השיחות?')) {
+                setCharacters(prev => prev.map(c => ({ ...c, memory: '' })));
+                setChats(prev => prev.map(c => ({ ...c, summary: '' })));
+              }
+            }} className="w-full border border-gray-300 text-gray-700 py-2 rounded hover:bg-gray-50">אפס זיכרון</button>
+            <button onClick={onClose} className="w-full bg-[#00a884] text-white py-2 rounded hover:bg-[#008f6f] mt-4">שמור וסגור</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NewCharacterModal({ newCharData, setNewCharData, availableModels, createCharacter, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-md rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="bg-[#008069] text-white px-4 py-3 flex justify-between items-center shadow-md">
+          <h3 className="font-medium text-lg">יצירת דמות חדשה</h3>
+          <button onClick={onClose} className="hover:bg-white/20 rounded-full p-1 transition-colors"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 overflow-y-auto max-h-[80vh]">
           <div className="space-y-4">
             <div><label className="block text-sm text-gray-600 mb-1">שם</label><input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={newCharData.name} onChange={e => setNewCharData({...newCharData, name: e.target.value})} /></div>
             <div className="space-y-2">
@@ -769,11 +1374,26 @@ export default function App() {
             </div>
             <button onClick={createCharacter} className="w-full bg-[#00a884] text-white py-2 rounded hover:bg-[#008f6f]" disabled={!newCharData.name}>צור דמות</button>
           </div>
-        </Modal>
-      )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
-      {showEditPersonaModal && personaToEdit && (
-        <Modal title={`עריכת דמות: ${personaToEdit.name}`} onClose={() => setShowEditPersonaModal(false)}>
+function EditPersonaModal({ 
+  personaToEdit, setPersonaToEdit, availableModels, 
+  enhancingPrompt, enhancePersonaPrompt, 
+  setCharacters, setChats, characters, 
+  onClose 
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-md rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="bg-[#008069] text-white px-4 py-3 flex justify-between items-center shadow-md">
+          <h3 className="font-medium text-lg">עריכת דמות: {personaToEdit.name}</h3>
+          <button onClick={onClose} className="hover:bg-white/20 rounded-full p-1 transition-colors"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 overflow-y-auto max-h-[80vh]">
           <div className="space-y-4">
             <div><label className="block text-sm text-gray-600 mb-1">שם</label><input className="w-full border p-2 rounded outline-none focus:border-[#00a884]" value={personaToEdit.name} onChange={e => setPersonaToEdit({ ...personaToEdit, name: e.target.value })} /></div>
             <div className="space-y-2">
@@ -837,20 +1457,40 @@ export default function App() {
               </div>
             </div>
           </div>
-        </Modal>
-      )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
-      {showNewChatModal && (
-        <Modal title="שיחה חדשה" onClose={() => setShowNewChatModal(false)}>
+function NewChatModal({ characters, startDirectChat, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-md rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="bg-[#008069] text-white px-4 py-3 flex justify-between items-center shadow-md">
+          <h3 className="font-medium text-lg">שיחה חדשה</h3>
+          <button onClick={onClose} className="hover:bg-white/20 rounded-full p-1 transition-colors"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 overflow-y-auto max-h-[80vh]">
           {characters.length === 0 ? <p className="text-gray-500 text-center">אין אנשי קשר.</p> : 
           <div className="space-y-2 max-h-[300px] overflow-y-auto">{characters.map(char => (
                <div key={char.id} onClick={() => startDirectChat(char)} className="flex items-center gap-3 p-2 hover:bg-gray-100 rounded cursor-pointer"><img src={char.avatar} alt="" className="w-10 h-10 rounded-full bg-gray-200" /><div className="font-medium">{char.name}</div></div>
           ))}</div>}
-        </Modal>
-      )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
-      {showNewGroupModal && (
-        <Modal title="קבוצה חדשה" onClose={() => setShowNewGroupModal(false)}>
+function NewGroupModal({ characters, selectedForGroup, setSelectedForGroup, groupName, setGroupName, createGroupChat, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-md rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="bg-[#008069] text-white px-4 py-3 flex justify-between items-center shadow-md">
+          <h3 className="font-medium text-lg">קבוצה חדשה</h3>
+          <button onClick={onClose} className="hover:bg-white/20 rounded-full p-1 transition-colors"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 overflow-y-auto max-h-[80vh]">
           <div className="space-y-4">
             <input className="w-full border-b-2 border-[#00a884] p-2 outline-none bg-gray-50" value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="נושא הקבוצה..." />
             <div className="max-h-[200px] overflow-y-auto custom-scrollbar">
@@ -866,11 +1506,21 @@ export default function App() {
             </div>
             <button onClick={createGroupChat} disabled={!groupName || selectedForGroup.length === 0} className="w-full bg-[#00a884] text-white py-2 rounded disabled:bg-gray-300">צור קבוצה</button>
           </div>
-        </Modal>
-      )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
-      {showParticipantsModal && activeChat && activeChat.type === 'group' && (
-        <Modal title="משתתפי קבוצה" onClose={() => setShowParticipantsModal(false)}>
+function ParticipantsModal({ characters, participantsDraft, setParticipantsDraft, activeChatId, setChats, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-md rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="bg-[#008069] text-white px-4 py-3 flex justify-between items-center shadow-md">
+          <h3 className="font-medium text-lg">משתתפי קבוצה</h3>
+          <button onClick={onClose} className="hover:bg-white/20 rounded-full p-1 transition-colors"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 overflow-y-auto max-h-[80vh]">
           <div className="space-y-4">
             <div className="max-h-[260px] overflow-y-auto border rounded">
               {characters.map(char => {
@@ -887,19 +1537,29 @@ export default function App() {
               })}
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setShowParticipantsModal(false)} className="border px-3 py-2 rounded">בטל</button>
+              <button onClick={onClose} className="border px-3 py-2 rounded">בטל</button>
               <button onClick={() => {
                 if (!participantsDraft.length) { alert('בחר/י לפחות דמות אחת.'); return; }
                 setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, participants: participantsDraft } : c));
-                setShowParticipantsModal(false);
+                onClose();
               }} className="ml-auto bg-[#00a884] text-white px-4 py-2 rounded">שמור</button>
             </div>
           </div>
-        </Modal>
-      )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
-      {showGroupManageModal && activeChat && activeChat.type === 'group' && (
-        <Modal title="ניהול קבוצה" onClose={() => setShowGroupManageModal(false)}>
+function GroupManageModal({ groupEdit, setGroupEdit, characters, saveGroupEdits, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-md rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="bg-[#008069] text-white px-4 py-3 flex justify-between items-center shadow-md">
+          <h3 className="font-medium text-lg">ניהול קבוצה</h3>
+          <button onClick={onClose} className="hover:bg-white/20 rounded-full p-1 transition-colors"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 overflow-y-auto max-h-[80vh]">
           <div className="space-y-4">
             <div>
               <label className="block text-sm text-gray-600 mb-1">שם הקבוצה</label>
@@ -931,104 +1591,17 @@ export default function App() {
               </div>
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setShowGroupManageModal(false)} className="border px-3 py-2 rounded">בטל</button>
+              <button onClick={onClose} className="border px-3 py-2 rounded">בטל</button>
               <button onClick={saveGroupEdits} className="ml-auto bg-[#00a884] text-white px-4 py-2 rounded">שמור</button>
             </div>
           </div>
-        </Modal>
-      )}
-      
-      {/* Mobile quick actions (hidden during chat to avoid covering input) */}
-      {view !== 'chat' && (
-        <MobileActionsBar 
-          onHome={() => setView('list')} 
-          onNewChat={() => setShowNewChatModal(true)} 
-          onNewGroup={() => setShowNewGroupModal(true)} 
-          onNewPersona={() => setShowNewCharModal(true)} 
-          onSettings={() => setShowSettingsModal(true)}
-        />
-      )}
-    </div>
-  );
-}
-
-// --- Chat Input with Image Support ---
-
-function ChatInput({ onSendMessage, disabled }) {
-  const [text, setText] = useState('');
-  const [selectedImage, setSelectedImage] = useState(null);
-  const fileInputRef = useRef(null);
-
-  const handleSend = () => {
-    if (text.trim() || selectedImage) {
-      onSendMessage(text, selectedImage);
-      setText('');
-      setSelectedImage(null);
-    }
-  };
-
-  const handleFileSelect = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setSelectedImage(reader.result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  return (
-    <div className="bg-[#f0f2f5] px-4 py-2 flex flex-col z-10" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 8px)' }}>
-      {/* Image Preview */}
-      {selectedImage && (
-        <div className="flex p-2 bg-[#e9edef] rounded-t-lg mx-2 mb-[-5px] relative self-start border border-b-0 border-gray-300 z-0">
-           <img src={selectedImage} alt="Preview" className="h-20 rounded border border-gray-300" />
-           <button onClick={() => setSelectedImage(null)} className="absolute -top-2 -left-2 bg-gray-500 text-white rounded-full p-0.5 hover:bg-red-500"><X className="w-3 h-3" /></button>
         </div>
-      )}
-
-      <div className="flex items-center gap-2 w-full relative z-10">
-        <div className="text-[#54656f] cursor-pointer hover:text-gray-800 transition-colors"><Smile className="w-6 h-6" /></div>
-        
-        {/* Attachment Button */}
-        <div 
-          className="text-[#54656f] cursor-pointer hover:text-gray-800 transition-colors"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <Plus className="w-6 h-6" />
-        </div>
-        <input 
-          type="file" 
-          ref={fileInputRef} 
-          className="hidden" 
-          accept="image/*" 
-          onChange={handleFileSelect}
-        />
-
-        <div className="flex-1 bg-white rounded-lg px-4 py-2 flex items-center shadow-sm">
-          <input 
-            className="w-full bg-transparent border-none outline-none text-[15px] text-[#111b21] placeholder:text-[#54656f]"
-            placeholder={disabled ? "הגדר מפתח API..." : "הקלד/י הודעה"}
-            value={text}
-            onChange={e => setText(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !disabled && handleSend()}
-            dir="auto"
-            disabled={disabled}
-          />
-        </div>
-        <button 
-          onClick={handleSend} 
-          disabled={disabled || (!text.trim() && !selectedImage)}
-          className="text-[#54656f] disabled:opacity-50 transition-all duration-200 transform active:scale-90"
-        >
-          {(text.trim() || selectedImage) ? <Send className="w-6 h-6 text-[#00a884]" /> : <span className="w-6 h-6 block" />} 
-        </button>
       </div>
     </div>
   );
 }
 
+// --- Modal component ---
 function Modal({ title, children, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center p-4 backdrop-blur-sm">
@@ -1043,9 +1616,37 @@ function Modal({ title, children, onClose }) {
   );
 }
 
+// Wrap the App component with ErrorBoundary for production
+export function WrappedApp() {
+  return (
+    <ErrorBoundary componentName="אפליקציית WhatsApp AI">
+      <App />
+    </ErrorBoundary>
+  );
+}
+
+// --- Mobile actions bar ---
+function MobileActionsBar({ onHome, onNewChat, onNewGroup, onNewPersona, onSettings }) {
+  return (
+    <div className="md:hidden fixed bottom-0 left-0 right-0 z-[900] px-3 pb-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}>
+      <div className="mx-auto max-w-[680px] bg-white rounded-full shadow-lg border border-gray-200 flex justify-around items-center py-2">
+        <button onClick={onHome} className="p-2 text-[#54656f]" title="שיחות"><Home className="w-6 h-6"/></button>
+        <button onClick={onNewChat} className="p-2 text-[#54656f]" title="שיחה חדשה"><MessageSquare className="w-6 h-6"/></button>
+        <button onClick={onNewGroup} className="p-2 text-[#54656f]" title="קבוצה חדשה"><Users className="w-6 h-6"/></button>
+        <button onClick={onNewPersona} className="p-2 text-[#54656f]" title="דמות חדשה"><Bot className="w-6 h-6"/></button>
+        <button onClick={onSettings} className="p-2 text-[#54656f]" title="הגדרות"><Settings className="w-6 h-6"/></button>
+      </div>
+    </div>
+  );
+}
+
 // --- Avatar helpers ---
-function generateAvatarOptions(seedBase = 'User', count = 12) {
-  const styles = ['avataaars', 'adventurer', 'bottts', 'identicon', 'croodles-neutral', 'big-ears', 'notionists', 'pixel-art', 'shapes', 'glass', 'thumbs', 'lorelei'];
+function generateAvatarOptions(seedBase = 'User', count = 24) {
+  const styles = [
+    'avataaars', 'adventurer', 'bottts', 'identicon', 'croodles-neutral', 'big-ears', 
+    'notionists', 'pixel-art', 'shapes', 'glass', 'thumbs', 'lorelei',
+    'micah', 'miniavs', 'open-peeps', 'personas', 'big-smile', 'fun-emoji'
+  ];
   const options = [];
   for (let i = 0; i < count; i++) {
     const style = styles[i % styles.length];
@@ -1062,17 +1663,71 @@ function randomAvatar(seedBase = 'User') {
   return `https://api.dicebear.com/7.x/${style}/svg?seed=${seed}`;
 }
 
-// --- Mobile actions bar ---
-function MobileActionsBar({ onHome, onNewChat, onNewGroup, onNewPersona, onSettings }) {
-  return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 z-[900] px-3 pb-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}>
-      <div className="mx-auto max-w-[680px] bg-white rounded-full shadow-lg border border-gray-200 flex justify-around items-center py-2">
-        <button onClick={onHome} className="p-2 text-[#54656f]" title="שיחות"><Home className="w-6 h-6"/></button>
-        <button onClick={onNewChat} className="p-2 text-[#54656f]" title="שיחה חדשה"><MessageSquare className="w-6 h-6"/></button>
-        <button onClick={onNewGroup} className="p-2 text-[#54656f]" title="קבוצה חדשה"><Users className="w-6 h-6"/></button>
-        <button onClick={onNewPersona} className="p-2 text-[#54656f]" title="דמות חדשה"><Bot className="w-6 h-6"/></button>
-        <button onClick={onSettings} className="p-2 text-[#54656f]" title="הגדרות"><Settings className="w-6 h-6"/></button>
-      </div>
-    </div>
-  );
+// --- Error Boundary Component ---
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error: error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    log.error('ErrorBoundary caught an error:', error, errorInfo);
+    handleError(error, {
+      type: ErrorTypes.UNKNOWN_ERROR,
+      context: {
+        component: this.props.componentName,
+        errorInfo: errorInfo
+      }
+    });
+  }
+
+  resetError = () => {
+    this.setState({ hasError: false, error: null });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 bg-red-50 z-[1000] flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full border-2 border-red-200">
+            <div className="flex justify-between items-start mb-4">
+              <h2 className="text-xl font-bold text-red-600">אירעה שגיאה</h2>
+              <button onClick={this.resetError} className="text-gray-400 hover:text-gray-600">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="mb-4 text-gray-700">
+              <p>משהו השתבש ב-{this.props.componentName || 'אפליקציה'}.</p>
+              <p className="text-sm mt-2 text-gray-600">
+                {this.state.error.message || 'לא ניתן לטעון את הרכיב.'}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => window.location.reload()}
+                className="flex-1 bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700 transition-colors"
+              >
+                רענן דף
+              </button>
+              <button 
+                onClick={this.resetError}
+                className="flex-1 border border-gray-300 text-gray-700 py-2 px-4 rounded hover:bg-gray-50 transition-colors"
+              >
+                נסה שוב
+              </button>
+            </div>
+            <div className="mt-4 text-xs text-gray-500 text-center">
+              <p>אם הבעיה נמשכת, נא לבדוק את קונסולת הדפדפן לפרטים נוספים.</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
 }
