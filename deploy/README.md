@@ -40,6 +40,11 @@ Deployment options for whatsai / אפשרויות פריסה ל-whatsai
 - האפליקציה היא סטטית. כל קריאות ה-OpenRouter מבוצעות בצד הלקוח על ידי דפדפן המשתמש.
 - ניתן לשמור על התנהגות "הגדרות → מפתח API" זהה; אין צורך בסודות שרת.
 
+#### SPA routing / ניתוב SPA
+
+- A `_redirects` file is included under `public/_redirects` with `/* /index.html 200` so client-side routes resolve correctly on Pages.
+- קובץ `_redirects` נוסף תחת `public/_redirects` עם `/* /index.html 200` כדי שניתוב בצד הלקוח יעבוד כראוי ב-Pages.
+
 ## Self-hosted Static Preview / פריסה עצמאית סטטית
 
 - **Outcome / תוצאה:** Your device serves the built app locally; Cloudflare Tunnel exposes it on whatsai.yishaik.com. Use systemd to keep it running.
@@ -334,4 +339,3 @@ Deployment options for whatsai / אפשרויות פריסה ל-whatsai
 - בדוק יומני שרת עבור בעיות בצד השרת
 - בדוק עם תנאי רשת שונים
 - עקוב אחר זמני תגובה ושגיאות של API
-

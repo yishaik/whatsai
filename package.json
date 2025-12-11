@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "start": "vite --port 5555 --host",
     "start:prod": "vite preview --port 8080 --host",
+    "deploy:pages": "wrangler pages deploy dist --project-name=whatsai",
     "docs:build": "# Placeholder for documentation build",
     "docs:serve": "# Placeholder for documentation server",
     "test": "jest --watchAll"
@@ -37,6 +38,7 @@
     "babel-jest": "^29.7.0",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
-    "vite": "^5.0.8"
+    "vite": "^5.0.8",
+    "wrangler": "^3.87.0"
   }
 }

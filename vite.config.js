@@ -7,6 +7,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5555,
+    allowedHosts: ['whatsai.yishaik.com'],
   },
   esbuild: {
     loader: 'jsx',
