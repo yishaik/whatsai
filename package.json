@@ -4,7 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "npx vercel dev",
+    "dev": "vite",
+    "dev:vercel": "npx vercel dev",
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server.js"
