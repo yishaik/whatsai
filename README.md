@@ -10,8 +10,8 @@ This project is a Vite + React web application that allows users to chat with AI
    `npm install`
 2. Create a `.env.local` file in the project root with:
    `GEMINI_API_KEY=your_api_key`
-3. Start the app with Vercel's local dev server:
-   `npm run dev`
+3. Start the full app with Vercel's local dev server:
+   `npm run dev:vercel`
 
 This runs the frontend and the `/api/*` serverless endpoints together.
 
@@ -30,7 +30,8 @@ Vercel should detect the project as a Vite application and build it with:
 
 ## Available scripts
 
-- `npm run dev`: Runs the app locally through `vercel dev` so both the frontend and API routes are available.
+- `npm run dev`: Runs the Vite frontend only.
+- `npm run dev:vercel`: Runs the full app locally through `vercel dev` so both the frontend and API routes are available.
 - `npm run build`: Builds the frontend for production into `dist`.
 - `npm run preview`: Serves the built frontend locally for static preview only.
 - `npm run start`: Serves the built frontend with Express.
@@ -82,4 +83,4 @@ Vercel should detect the project as a Vite application and build it with:
 ## Notes
 
 - `GEMINI_API_KEY` is the only environment variable you need for Gemini.
-- `npm run preview` and `npm run start` do not emulate Vercel Functions. Use `npm run dev` for full local functionality.
+- `npm run preview` and `npm run start` do not emulate Vercel Functions. Use `npm run dev:vercel` for full local functionality.
