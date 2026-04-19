@@ -3,7 +3,7 @@ import { GoogleGenAI } from '@google/genai';
 type Persona = {
   id: string;
   name: string;
-  avatar: string;
+  avatar?: string;
   prompt: string;
   canSearch?: boolean;
 };
@@ -13,12 +13,6 @@ type Message = {
   authorId: string;
   text: string;
   timestamp: number;
-  sources?: Source[];
-};
-
-type Source = {
-  title: string;
-  uri: string;
 };
 
 type PersonaResponseRequestBody = {
@@ -54,7 +48,7 @@ const formatChatHistory = (
     .join('\n');
 };
 
-const extractSources = (groundingMetadata: any): Source[] => {
+const extractSources = (groundingMetadata: any): { title: string; uri: string }[] => {
   if (!groundingMetadata?.groundingChunks?.length) {
     return [];
   }
@@ -68,7 +62,7 @@ const extractSources = (groundingMetadata: any): Source[] => {
       }
       return null;
     })
-    .filter((source: Source | null): source is Source => source !== null && source.uri !== '')
+    .filter((source: any) => source !== null && source.uri !== '')
     .slice(0, 3);
 };
 
@@ -78,30 +72,44 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const {
-      persona,
-      chatTopic,
-      history = [],
-      allPersonasInChat = [],
-      personasMap = {},
-    } = (req.body || {}) as PersonaResponseRequestBody;
+    const body = req.body || {};
+    
+    // Strip out avatar fields to reduce payload size
+    const persona = body.persona || {};
+    const { avatar: _, ...personaWithoutAvatar } = persona;
+    
+    const allPersonasInChat = (body.allPersonasInChat || []).map((p: any) => {
+      const { avatar, ...rest } = p;
+      return rest;
+    });
+    
+    const personasMap: Record<string, Persona> = {};
+    if (body.personasMap) {
+      for (const [id, p] of Object.entries(body.personasMap as Record<string, any>)) {
+        const { avatar, ...rest } = p;
+        personasMap[id] = rest;
+      }
+    }
+    
+    const chatTopic = body.chatTopic || 'Chat';
+    const history = body.history || [];
 
-    if (!persona?.id || !persona?.name || !persona?.prompt || !chatTopic) {
+    if (!personaWithoutAvatar?.id || !personaWithoutAvatar?.name || !personaWithoutAvatar?.prompt || !chatTopic) {
       return res.status(400).json({ error: 'Missing required fields.' });
     }
 
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const otherPersonas = allPersonasInChat
-      .filter((participant) => participant.id !== persona.id)
-      .map((participant) => participant.name)
+      .filter((participant: any) => participant.id !== personaWithoutAvatar.id)
+      .map((participant: any) => participant.name)
       .join(', ');
     const formattedHistory = formatChatHistory(history, personasMap);
 
     const systemInstruction = `You are in a group chat. The chat topic is: "${chatTopic}".
-Your persona is "${persona.name}". Your personality is: "${persona.prompt}".
+Your persona is "${personaWithoutAvatar.name}". Your personality is: "${personaWithoutAvatar.prompt}".
 The other participants are: User${otherPersonas ? `, ${otherPersonas}` : ''}.
-You must respond as "${persona.name}". Your response must be in character.
-Do not prefix your response with your name (e.g., don't write "${persona.name}:"). Just provide the message content.`;
+You must respond as "${personaWithoutAvatar.name}". Your response must be in character.
+Do not prefix your response with your name (e.g., don't write "${personaWithoutAvatar.name}:"). Just provide the message content.`;
 
     const config: Record<string, any> = {
       systemInstruction,
@@ -110,7 +118,7 @@ Do not prefix your response with your name (e.g., don't write "${persona.name}:"
       topK: 1,
     };
 
-    if (persona.canSearch) {
+    if (personaWithoutAvatar.canSearch) {
       config.tools = [{ googleSearch: {} }];
     }
 
@@ -122,7 +130,7 @@ Do not prefix your response with your name (e.g., don't write "${persona.name}:"
 
     const responseText = response.text?.trim() ?? '';
     const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
-    const sources = persona.canSearch ? extractSources(groundingMetadata) : [];
+    const sources = personaWithoutAvatar.canSearch ? extractSources(groundingMetadata) : [];
 
     return res.status(200).json({
       text: responseText,
@@ -130,12 +138,8 @@ Do not prefix your response with your name (e.g., don't write "${persona.name}:"
     });
   } catch (error) {
     console.error('Error generating persona response:', error);
-
     return res.status(500).json({
-      error:
-        error instanceof Error
-          ? error.message
-          : 'Failed to generate persona response.',
+      error: error instanceof Error ? error.message : 'Failed to generate persona response.',
     });
   }
 }
