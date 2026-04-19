@@ -9,6 +9,12 @@ type AvatarPayload = {
   image: string;
 };
 
+// Strip avatar from persona to reduce request size
+const stripAvatar = (persona: Persona): Omit<Persona, 'avatar'> => {
+  const { avatar, ...rest } = persona;
+  return rest;
+};
+
 const postJson = async <T>(url: string, body: unknown): Promise<T> => {
   const response = await fetch(url, {
     method: 'POST',
@@ -40,12 +46,18 @@ export const generatePersonaResponse = async (
   allPersonasInChat: Persona[],
   personasMap: { [id: string]: Persona }
 ): Promise<PersonaResponsePayload> => {
+  // Strip avatar fields to reduce payload size (avoids 413 errors)
+  const strippedPersonasMap: { [id: string]: Omit<Persona, 'avatar'> } = {};
+  for (const [id, p] of Object.entries(personasMap)) {
+    strippedPersonasMap[id] = stripAvatar(p);
+  }
+
   return postJson<PersonaResponsePayload>('/api/persona-response', {
-    persona,
+    persona: stripAvatar(persona),
     chatTopic,
     history,
-    allPersonasInChat,
-    personasMap,
+    allPersonasInChat: allPersonasInChat.map(stripAvatar),
+    personasMap: strippedPersonasMap,
   });
 };
 
