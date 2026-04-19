@@ -1,171 +1,156 @@
 import React, { useState, useMemo } from 'react';
-import { Persona, ChatRoom, Message } from './types';
-import { useLocalStorage } from './hooks/useLocalStorage';
+import { useConvexData, Persona, ChatRoom } from './hooks/useConvexData';
+import { useChatMessages } from './hooks/useChatMessages';
 import ChatList from './components/ChatList';
 import ChatView from './components/ChatView';
 import PersonaManager from './components/PersonaManager';
 import CreateChatModal from './components/CreateChatModal';
 import EditChatModal from './components/EditChatModal';
-import StorageManager from './components/StorageManager';
 import { generateAvatar, generateGroupChatAvatar } from './services/geminiService';
 import { defaultPersonas, DEFAULT_AVATAR } from './data/defaultPersonas';
 
 const App: React.FC = () => {
-  // Use try-catch to handle quota errors on initial load
-  let initialPersonas = defaultPersonas;
-  try {
-    const stored = localStorage.getItem('personas');
-    if (stored) {
-      initialPersonas = JSON.parse(stored);
-    }
-  } catch (e) {
-    console.error('Failed to load personas from storage:', e);
-    if (e instanceof Error && e.name === 'QuotaExceededError') {
-      alert('Storage quota exceeded. Opening storage manager to free up space.');
-      localStorage.clear(); // Emergency clear
-    }
-  }
+  // Use Convex for data
+  const {
+    personas,
+    chatRooms,
+    personasMap,
+    activeChatId,
+    setActiveChatId,
+    addPersona: addPersonaToDb,
+    updatePersona: updatePersonaInDb,
+    deletePersona: deletePersonaFromDb,
+    addChatRoom: addChatRoomToDb,
+    updateChatRoom: updateChatRoomInDb,
+    deleteChatRoom: deleteChatRoomFromDb,
+    addMessage: addMessageToDb,
+  } = useConvexData();
 
-  const [personas, setPersonas] = useLocalStorage<Persona[]>('personas', initialPersonas);
-  const [chatRooms, setChatRooms] = useLocalStorage<ChatRoom[]>('chatRooms', []);
-  const [activeChatId, setActiveChatId] = useLocalStorage<string | null>('activeChatId', null);
+  // Load messages for active chat
+  const activeChatMessages = useChatMessages(activeChatId);
 
   const [isPersonaManagerOpen, setIsPersonaManagerOpen] = useState(false);
   const [isCreateChatOpen, setIsCreateChatOpen] = useState(false);
   const [editingChatRoom, setEditingChatRoom] = useState<ChatRoom | null>(null);
-  const [isStorageManagerOpen, setIsStorageManagerOpen] = useState(false);
 
-  const personasMap = useMemo(() => {
-    return personas.reduce((acc, p) => {
-      acc[p.id] = p;
-      return acc;
-    }, {} as { [id: string]: Persona });
-  }, [personas]);
-
+  // Add a persona
   const addPersona = async (personaData: Omit<Persona, 'id' | 'avatar'>): Promise<Error | null> => {
     let avatarUrl: string;
     let errorToReport: Error | null = null;
-    
+
     try {
       avatarUrl = await generateAvatar(personaData.name, personaData.prompt);
     } catch (error) {
-      console.error("Avatar generation failed, using fallback.", error);
-      // Use the default SVG placeholder
+      console.error('Avatar generation failed, using fallback:', error);
       avatarUrl = DEFAULT_AVATAR;
-      
       if (error instanceof Error) {
         errorToReport = error;
-      } else {
-        errorToReport = new Error("An unknown error occurred while generating the avatar.");
       }
     }
 
-    const newPersona: Persona = {
-      ...personaData,
-      id: `persona_${Date.now()}`,
+    await addPersonaToDb({
+      name: personaData.name,
+      prompt: personaData.prompt,
+      canSearch: personaData.canSearch,
       avatar: avatarUrl,
-    };
-    setPersonas(prev => [...prev, newPersona]);
-    
+    });
+
     return errorToReport;
   };
 
-  const updatePersona = (id: string, data: Omit<Persona, 'id' | 'avatar'>) => {
-    setPersonas(prev => prev.map(p =>
-      p.id === id
-        ? { ...p, ...data }
-        : p
-    ));
+  // Update a persona
+  const updatePersona = async (id: string, updates: Partial<Persona>) => {
+    await updatePersonaInDb(id, updates);
   };
 
-  const regeneratePersonaAvatar = async (personaId: string) => {
-    const persona = personas.find(p => p.id === personaId);
-    if (!persona) return;
-    
-    const newAvatar = await generateAvatar(persona.name, persona.prompt);
-    setPersonas(prev => prev.map(p =>
-      p.id === personaId
-        ? { ...p, avatar: newAvatar }
-        : p
-    ));
-  };
-  
-  const createChat = async (topic: string, personaIds: string[]) => {
-    const newChatRoom: ChatRoom = {
-      id: `chat_${Date.now()}`,
-      topic,
-      personaIds,
-      messages: [],
-    };
-    
-    // Try to generate avatar for the chat
+  // Regenerate a persona's avatar
+  const regeneratePersonaAvatar = async (personaId: string): Promise<Error | null> => {
+    const persona = personas.find((p) => p.id === personaId);
+    if (!persona) return new Error('Persona not found');
+
     try {
-      const personaNames = personaIds.map(id => personasMap[id]?.name || 'Unknown');
-      const avatar = await generateGroupChatAvatar(topic, personaNames);
-      newChatRoom.avatar = avatar;
+      const newAvatar = await generateAvatar(persona.name, persona.prompt);
+      await updatePersonaInDb(personaId, { avatar: newAvatar });
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error : new Error(String(error));
+    }
+  };
+
+  // Create a chat room
+  const createChat = async (topic: string, personaIds: string[]) => {
+    // Generate group avatar in background
+    let avatar: string | undefined;
+    try {
+      const personaNames = personaIds.map((id) => personasMap[id]?.name || 'Unknown');
+      avatar = await generateGroupChatAvatar(topic, personaNames);
     } catch (error) {
       console.error('Failed to generate chat avatar:', error);
-      // Chat will use text-based avatar as fallback
     }
-    
-    setChatRooms(prev => [...prev, newChatRoom]);
-    setActiveChatId(newChatRoom.id);
+
+    const chatId = await addChatRoomToDb(topic, personaIds, avatar);
+    setActiveChatId(chatId);
   };
 
-  const updateChatRoom = (chatId: string, updates: Partial<ChatRoom>) => {
-    setChatRooms(prevRooms =>
-      prevRooms.map(room =>
-        room.id === chatId
-          ? { ...room, ...updates }
-          : room
-      )
-    );
+  // Update a chat room
+  const updateChatRoom = async (chatId: string, updates: Partial<ChatRoom>) => {
+    await updateChatRoomInDb(chatId, updates);
   };
 
+  // Generate a chat avatar
   const generateChatAvatar = async (chatId: string) => {
-    const chatRoom = chatRooms.find(room => room.id === chatId);
+    const chatRoom = chatRooms.find((room) => room.id === chatId);
     if (!chatRoom) return;
-    
-    const personaNames = chatRoom.personaIds.map(id => personasMap[id]?.name || 'Unknown');
+
+    const personaNames = chatRoom.personaIds.map((id) => personasMap[id]?.name || 'Unknown');
     const avatar = await generateGroupChatAvatar(chatRoom.topic, personaNames);
-    
-    updateChatRoom(chatId, { avatar });
+
+    await updateChatRoomInDb(chatId, { avatar });
   };
 
-  const addMessageToChat = (chatId: string, messageData: Omit<Message, 'id' | 'timestamp'>) => {
-    const newMessage: Message = {
-      ...messageData,
-      id: `msg_${Date.now()}`,
-      timestamp: Date.now(),
+  // Add a message to a chat
+  const addMessageToChat = async (
+    chatId: string,
+    messageData: { authorId: string; text: string; sources?: { title: string; uri: string }[] },
+  ) => {
+    await addMessageToDb(chatId, messageData.authorId, messageData.text, messageData.sources);
+  };
+
+  // Build active chat with messages
+  const activeChat = useMemo(() => {
+    if (!activeChatId) return null;
+    const chatRoom = chatRooms.find((c) => c.id === activeChatId);
+    if (!chatRoom) return null;
+    return {
+      ...chatRoom,
+      messages: activeChatMessages,
     };
-    setChatRooms(prevRooms =>
-      prevRooms.map(room =>
-        room.id === chatId
-          ? { ...room, messages: [...room.messages, newMessage] }
-          : room
-      )
-    );
-  };
-
-  const activeChat = chatRooms.find(c => c.id === activeChatId) || null;
+  }, [activeChatId, chatRooms, activeChatMessages]);
 
   return (
     <div className="h-screen w-screen bg-gray-900 text-white flex flex-col md:flex-row antialiased">
-      <ChatList
-        chatRooms={chatRooms}
-        activeChatId={activeChatId}
-        setActiveChatId={setActiveChatId}
-        onNewChat={() => setIsCreateChatOpen(true)}
-        onManagePersonas={() => setIsPersonaManagerOpen(true)}
-        onManageStorage={() => setIsStorageManagerOpen(true)}
-      />
+      {/* Public chat warning banner */}
+      <div className="absolute top-0 left-0 right-0 bg-yellow-600 text-black text-center py-1 text-sm z-50">
+        ⚠️ שימו לב: כל השיחות באתר חשופות לכל המבקרים. אל תשתפו מידע רגיש!
+      </div>
 
-      <ChatView
-        chatRoom={activeChat}
-        personasMap={personasMap}
-        onSendMessage={addMessageToChat}
-        onEditChat={() => activeChat && setEditingChatRoom(activeChat)}
-      />
+      <div className="flex flex-1 pt-8">
+        <ChatList
+          chatRooms={chatRooms}
+          activeChatId={activeChatId}
+          setActiveChatId={setActiveChatId}
+          onNewChat={() => setIsCreateChatOpen(true)}
+          onManagePersonas={() => setIsPersonaManagerOpen(true)}
+          onManageStorage={() => {}} // No longer needed
+        />
+
+        <ChatView
+          chatRoom={activeChat}
+          personasMap={personasMap}
+          onSendMessage={addMessageToChat}
+          onEditChat={() => activeChat && setEditingChatRoom(activeChat)}
+        />
+      </div>
 
       <PersonaManager
         isOpen={isPersonaManagerOpen}
@@ -190,11 +175,6 @@ const App: React.FC = () => {
         personas={personas}
         updateChatRoom={updateChatRoom}
         generateChatAvatar={generateChatAvatar}
-      />
-
-      <StorageManager
-        isOpen={isStorageManagerOpen}
-        onClose={() => setIsStorageManagerOpen(false)}
       />
     </div>
   );
