@@ -1,14 +1,4 @@
 import { GoogleGenAI } from '@google/genai';
-import type { Persona, Message } from './types';
-import { USER_ID } from './constants';
-
-type PersonaResponseRequestBody = {
-  persona: Persona;
-  chatTopic: string;
-  history: Message[];
-  allPersonasInChat: Persona[];
-  personasMap: Record<string, Persona>;
-};
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -22,43 +12,26 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'GEMINI_API_KEY not set' });
     }
     
-    const {
-      persona,
-      chatTopic,
-      history = [],
-      allPersonasInChat = [],
-      personasMap = {},
-    } = (req.body || {}) as PersonaResponseRequestBody;
-
-    if (!persona?.id || !persona?.name || !persona?.prompt || !chatTopic) {
+    const body = req.body || {};
+    const persona = body.persona || {};
+    const chatTopic = body.chatTopic || 'Test';
+    const history = body.history || [];
+    
+    if (!persona.id || !persona.name || !persona.prompt) {
       return res.status(400).json({ error: 'Missing required fields.' });
     }
 
     const ai = new GoogleGenAI({ apiKey });
     
-    const otherPersonas = allPersonasInChat
-      .filter((participant) => participant.id !== persona.id)
-      .map((participant) => participant.name)
-      .join(', ');
-    
     const formattedHistory = history
-      .map((message) => {
-        const authorName = message.authorId === USER_ID
-          ? 'User'
-          : personasMap[message.authorId]?.name || 'Unknown Persona';
-        return `${authorName}: ${message.text}`;
-      })
+      .map((message: any) => `${message.authorId || 'User'}: ${message.text || ''}`)
       .join('\n');
     
-    const systemInstruction = `You are in a group chat. The chat topic is: "${chatTopic}".
-Your persona is "${persona.name}". Your personality is: "${persona.prompt}".
-The other participants are: User${otherPersonas ? `, ${otherPersonas}` : ''}.
-You must respond as "${persona.name}". Your response must be in character.
-Do not prefix your response with your name (e.g., don't write "${persona.name}:"). Just provide the message content.`;
+    const systemInstruction = `You are "${persona.name}". ${persona.prompt}`;
     
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-lite-preview',
-      contents: `This is the chat history so far:\n${formattedHistory}\n\nYour turn is next. What is your reply?`,
+      contents: `Chat history:\n${formattedHistory}\n\nReply:`,
       config: {
         systemInstruction,
         temperature: 0.9,
@@ -70,9 +43,9 @@ Do not prefix your response with your name (e.g., don't write "${persona.name}:"
       sources: [],
     });
   } catch (error) {
-    console.error('Error generating persona response:', error);
+    console.error('Error:', error);
     return res.status(500).json({
-      error: error instanceof Error ? error.message : 'Failed to generate persona response.',
+      error: error instanceof Error ? error.message : 'Failed',
     });
   }
 }
