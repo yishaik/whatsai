@@ -91,9 +91,13 @@ export function useConvexData() {
   };
 
   const updatePersona = async (id: string, updates: Partial<Persona>) => {
+    const personaId = id as Id<"personas">;
     await updatePersonaMutation({
-      id: id as Id<"personas">,
-      ...updates,
+      id: personaId,
+      name: updates.name,
+      avatar: updates.avatar,
+      prompt: updates.prompt,
+      canSearch: updates.canSearch,
     });
   };
 
