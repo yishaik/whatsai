@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 
-export default async function handler(req: any, res: any) {
+export default async function handler(_req: any, res: any) {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     
@@ -12,12 +12,16 @@ export default async function handler(req: any, res: any) {
     
     // Try to list models to test the key
     const response = await ai.models.list();
+    const models = [];
+    for await (const model of response) {
+      models.push(model.name);
+    }
     
     return res.status(200).json({
       success: true,
       keyLength: apiKey.length,
       keyPrefix: apiKey.substring(0, 10) + '...',
-      modelsCount: response.length || 'unknown'
+      modelsCount: models.length
     });
   } catch (error) {
     return res.status(500).json({

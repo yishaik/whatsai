@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import type { Persona, Message, Source } from './types';
+import type { Persona, Message } from './types';
 import { USER_ID } from './constants';
 
 export default async function handler(req: any, res: any) {

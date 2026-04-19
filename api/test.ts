@@ -1,4 +1,4 @@
-export default async function handler(req: any, res: any) {
+export default async function handler(_req: any, res: any) {
   // Test environment variables
   const hasGeminiKey = !!process.env.GEMINI_API_KEY;
   const hasApiKey = !!process.env.API_KEY;

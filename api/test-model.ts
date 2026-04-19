@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 
-export default async function handler(req: any, res: any) {
+export default async function handler(_req: any, res: any) {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     
