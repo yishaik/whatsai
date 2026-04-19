@@ -1,6 +1,5 @@
 import React from 'react';
 import { Message, Persona, Source } from '../types';
-import { USER_ID } from '../constants';
 import Avatar from './Avatar';
 import { LinkIcon } from './icons';
 
