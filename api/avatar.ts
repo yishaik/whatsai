@@ -36,7 +36,7 @@ export default async function handler(req: any, res: any) {
 
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const response = await ai.models.generateImages({
-      model: 'imagen-3.0-generate-002',
+      model: 'imagen-4.0-generate-001',
       prompt: `A simple, circular, vector-art avatar for a chat profile. The character is named '${name}' and has this personality: '${prompt}'. The avatar should be clean, modern, and easily recognizable in a small size. Flat background color.`,
       config: {
         numberOfImages: 1,
