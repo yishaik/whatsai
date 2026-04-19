@@ -6,17 +6,15 @@ type Persona = {
   avatar?: string;
   prompt: string;
   canSearch?: boolean;
+};
+
 type Message = {
   id: string;
   authorId: string;
   text: string;
   timestamp: number;
+};
 
-  persona: Persona;
-  chatTopic: string;
-  history: Message[];
-  allPersonasInChat: Persona[];
-  personasMap: Record<string, Persona>;
 const USER_ID = 'user';
 
 const getApiKey = (): string => {
@@ -25,6 +23,8 @@ const getApiKey = (): string => {
     throw new Error('GEMINI_API_KEY environment variable is not set.');
   }
   return apiKey;
+};
+
 const formatChatHistory = (
   history: Message[],
   personasMap: Record<string, Persona>
@@ -38,6 +38,8 @@ const formatChatHistory = (
       return `${authorName}: ${message.text}`;
     })
     .join('\n');
+};
+
 const extractSources = (groundingMetadata: any): { title: string; uri: string }[] => {
   if (!groundingMetadata?.groundingChunks?.length) {
     return [];
@@ -54,6 +56,8 @@ const extractSources = (groundingMetadata: any): { title: string; uri: string }[
     })
     .filter((source: any) => source !== null && source.uri !== '')
     .slice(0, 3);
+};
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
