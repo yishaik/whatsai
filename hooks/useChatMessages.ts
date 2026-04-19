@@ -11,7 +11,7 @@ export function useChatMessages(chatRoomId: string | null) {
   );
 
   // Convert Convex messages to app format
-  const messages: Message[] = (convexMessages || []).map((m) => ({
+  const messages: Message[] = (convexMessages || []).map((m: any) => ({
     id: m._id,
     authorId: m.authorId,
     text: m.text,

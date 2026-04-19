@@ -50,7 +50,7 @@ export function useConvexData() {
 
   // Convert Convex data to app format
   const personas: Persona[] = useMemo(() => {
-    return convexPersonas.map((p) => ({
+    return convexPersonas.map((p: any) => ({
       id: p._id,
       name: p.name,
       avatar: p.avatar,
@@ -60,7 +60,7 @@ export function useConvexData() {
   }, [convexPersonas]);
 
   const chatRooms: ChatRoom[] = useMemo(() => {
-    return convexChatRooms.map((cr) => ({
+    return convexChatRooms.map((cr: any) => ({
       id: cr._id,
       topic: cr.topic,
       avatar: cr.avatar,
@@ -157,7 +157,7 @@ export function useConvexData() {
     addPersona,
     updatePersona,
     deletePersona,
-    setPersonas: async (newPersonas: Persona[]) => {
+    setPersonas: async (_newPersonas: Persona[]) => {
       // This is for compatibility with the old code
       // In practice, use addPersona/updatePersona/deletePersona
     },
@@ -166,7 +166,7 @@ export function useConvexData() {
     addChatRoom,
     updateChatRoom,
     deleteChatRoom,
-    setChatRooms: async (newChatRooms: ChatRoom[]) => {
+    setChatRooms: async (_newChatRooms: ChatRoom[]) => {
       // This is for compatibility with the old code
       // In practice, use addChatRoom/updateChatRoom/deleteChatRoom
     },

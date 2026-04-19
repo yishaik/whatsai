@@ -7,7 +7,7 @@ import PersonaManager from './components/PersonaManager';
 import CreateChatModal from './components/CreateChatModal';
 import EditChatModal from './components/EditChatModal';
 import { generateAvatar, generateGroupChatAvatar } from './services/geminiService';
-import { defaultPersonas, DEFAULT_AVATAR } from './data/defaultPersonas';
+import { DEFAULT_AVATAR } from './data/defaultPersonas';
 
 const App: React.FC = () => {
   // Use Convex for data
@@ -19,10 +19,8 @@ const App: React.FC = () => {
     setActiveChatId,
     addPersona: addPersonaToDb,
     updatePersona: updatePersonaInDb,
-    deletePersona: deletePersonaFromDb,
     addChatRoom: addChatRoomToDb,
     updateChatRoom: updateChatRoomInDb,
-    deleteChatRoom: deleteChatRoomFromDb,
     addMessage: addMessageToDb,
   } = useConvexData();
 
@@ -64,16 +62,15 @@ const App: React.FC = () => {
   };
 
   // Regenerate a persona's avatar
-  const regeneratePersonaAvatar = async (personaId: string): Promise<Error | null> => {
+  const regeneratePersonaAvatar = async (personaId: string): Promise<void> => {
     const persona = personas.find((p) => p.id === personaId);
-    if (!persona) return new Error('Persona not found');
+    if (!persona) return;
 
     try {
       const newAvatar = await generateAvatar(persona.name, persona.prompt);
       await updatePersonaInDb(personaId, { avatar: newAvatar });
-      return null;
     } catch (error) {
-      return error instanceof Error ? error : new Error(String(error));
+      console.error('Failed to regenerate avatar:', error);
     }
   };
 
