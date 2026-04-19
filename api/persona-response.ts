@@ -99,7 +99,7 @@ Do not prefix your response with your name (e.g., don't write "${persona.name}:"
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-3.1-flash-lite-preview',
       contents: `This is the chat history so far:\n${formattedHistory}\n\nYour turn is next. What is your reply?`,
       config,
     });
