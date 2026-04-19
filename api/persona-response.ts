@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
-import type { Persona, Message, Source } from '../types';
-import { USER_ID } from '../constants';
+import type { Persona, Message, Source } from './types';
+import { USER_ID } from './constants';
 
 type PersonaResponseRequestBody = {
   persona: Persona;
