@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatRoom, Persona, Message } from '../types';
 import { USER_ID } from '../constants';
 import MessageBubble from './MessageBubble';
-import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon } from './icons';
+import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon } from './icons';
 import Avatar from './Avatar';
 import SourceViewerModal from './SourceViewerModal';
 import { generatePersonaResponse } from '../services/geminiService';
@@ -12,6 +12,7 @@ interface ChatViewProps {
   personasMap: { [id: string]: Persona };
   onSendMessage: (chatId: string, message: Omit<Message, 'id' | 'timestamp'>) => void;
   onEditChat?: () => void;
+  onDeleteChat?: () => void;
 }
 
 const TypingIndicator: React.FC<{ persona: Persona }> = ({ persona }) => (
@@ -25,7 +26,7 @@ const TypingIndicator: React.FC<{ persona: Persona }> = ({ persona }) => (
     </div>
 );
 
-const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessage, onEditChat }) => {
+const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessage, onEditChat, onDeleteChat }) => {
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
   const [viewingSourceUrl, setViewingSourceUrl] = useState<string | null>(null);
@@ -111,13 +112,24 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
           </p>
         </div>
         {onEditChat && (
-          <button 
-            onClick={onEditChat}
-            className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg"
-            title="Edit chat"
-          >
-            <PencilIcon className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button 
+              onClick={onEditChat}
+              className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg"
+              title="Edit chat"
+            >
+              <PencilIcon className="h-5 w-5" />
+            </button>
+            {onDeleteChat && (
+              <button 
+                onClick={() => { if (confirm('Delete this chat?')) onDeleteChat(); }}
+                className="text-icon-default hover:text-red-500 p-2 rounded-full hover:bg-item-hover-bg transition-colors"
+                title="Delete chat"
+              >
+                <TrashIcon className="h-5 w-5" />
+              </button>
+            )}
+          </div>
         )}
       </header>
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Persona } from '../types';
-import { XMarkIcon, PencilIcon, MagnifyingGlassIcon, ArrowPathIcon } from './icons';
+import { XMarkIcon, PencilIcon, MagnifyingGlassIcon, ArrowPathIcon, TrashIcon } from './icons';
 import Avatar from './Avatar';
 
 interface PersonaManagerProps {
@@ -10,9 +10,10 @@ interface PersonaManagerProps {
   addPersona: (persona: Omit<Persona, 'id' | 'avatar'>) => Promise<Error | null>;
   updatePersona: (id: string, data: Omit<Persona, 'id' | 'avatar'>) => void;
   regenerateAvatar: (personaId: string) => Promise<void>;
+  deletePersona: (id: string) => void;
 }
 
-const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, personas, addPersona, updatePersona, regenerateAvatar }) => {
+const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, personas, addPersona, updatePersona, regenerateAvatar, deletePersona }) => {
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [canSearch, setCanSearch] = useState(false);
@@ -206,8 +207,15 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
                                 >
                                     <ArrowPathIcon className={`h-5 w-5 ${regeneratingAvatars.has(p.id) ? 'animate-spin' : ''}`} />
                                 </button>
-                                <button onClick={() => handleEditClick(p)} className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0">
+                                <button onClick={() => handleEditClick(p)} className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0" title="Edit">
                                     <PencilIcon className="h-5 w-5" />
+                                </button>
+                                <button
+                                    onClick={() => { if (confirm(`Delete "${p.name}"?`)) deletePersona(p.id); }}
+                                    className="text-icon-default hover:text-red-500 p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0 transition-colors"
+                                    title="Delete persona"
+                                >
+                                    <TrashIcon className="h-5 w-5" />
                                 </button>
                             </div>
                         </div>

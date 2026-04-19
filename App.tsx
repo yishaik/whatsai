@@ -8,9 +8,9 @@ import CreateChatModal from './components/CreateChatModal';
 import EditChatModal from './components/EditChatModal';
 import { generateAvatar, generateGroupChatAvatar } from './services/geminiService';
 import { DEFAULT_AVATAR } from './data/defaultPersonas';
+import { Bars3Icon } from './components/icons';
 
 const App: React.FC = () => {
-  // Use Convex for data
   const {
     personas,
     chatRooms,
@@ -19,19 +19,20 @@ const App: React.FC = () => {
     setActiveChatId,
     addPersona: addPersonaToDb,
     updatePersona: updatePersonaInDb,
+    deletePersona: deletePersonaFromDb,
     addChatRoom: addChatRoomToDb,
     updateChatRoom: updateChatRoomInDb,
+    deleteChatRoom: deleteChatRoomFromDb,
     addMessage: addMessageToDb,
   } = useConvexData();
 
-  // Load messages for active chat
   const activeChatMessages = useChatMessages(activeChatId);
 
   const [isPersonaManagerOpen, setIsPersonaManagerOpen] = useState(false);
   const [isCreateChatOpen, setIsCreateChatOpen] = useState(false);
   const [editingChatRoom, setEditingChatRoom] = useState<ChatRoom | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // Add a persona
   const addPersona = async (personaData: Omit<Persona, 'id' | 'avatar'>): Promise<Error | null> => {
     let avatarUrl: string;
     let errorToReport: Error | null = null;
@@ -56,12 +57,10 @@ const App: React.FC = () => {
     return errorToReport;
   };
 
-  // Update a persona
   const updatePersona = async (id: string, updates: Partial<Persona>) => {
     await updatePersonaInDb(id, updates);
   };
 
-  // Regenerate a persona's avatar
   const regeneratePersonaAvatar = async (personaId: string): Promise<void> => {
     const persona = personas.find((p) => p.id === personaId);
     if (!persona) return;
@@ -74,27 +73,33 @@ const App: React.FC = () => {
     }
   };
 
-  // Create a chat room
+  const deletePersona = async (id: string) => {
+    await deletePersonaFromDb(id);
+  };
+
   const createChat = async (topic: string, personaIds: string[]) => {
-    // Generate group avatar in background
-    let avatar: string | undefined;
+    // Create chat immediately without avatar for instant feedback
+    const chatId = await addChatRoomToDb(topic, personaIds, undefined);
+    setActiveChatId(chatId);
+
+    // Generate avatar in background
     try {
       const personaNames = personaIds.map((id) => personasMap[id]?.name || 'Unknown');
-      avatar = await generateGroupChatAvatar(topic, personaNames);
+      const avatar = await generateGroupChatAvatar(topic, personaNames);
+      await updateChatRoomInDb(chatId, { avatar });
     } catch (error) {
       console.error('Failed to generate chat avatar:', error);
     }
-
-    const chatId = await addChatRoomToDb(topic, personaIds, avatar);
-    setActiveChatId(chatId);
   };
 
-  // Update a chat room
   const updateChatRoom = async (chatId: string, updates: Partial<ChatRoom>) => {
     await updateChatRoomInDb(chatId, updates);
   };
 
-  // Generate a chat avatar
+  const deleteChatRoom = async (chatId: string) => {
+    await deleteChatRoomFromDb(chatId);
+  };
+
   const generateChatAvatar = async (chatId: string) => {
     const chatRoom = chatRooms.find((room) => room.id === chatId);
     if (!chatRoom) return;
@@ -105,7 +110,6 @@ const App: React.FC = () => {
     await updateChatRoomInDb(chatId, { avatar });
   };
 
-  // Add a message to a chat
   const addMessageToChat = async (
     chatId: string,
     messageData: { authorId: string; text: string; sources?: { title: string; uri: string }[] },
@@ -113,7 +117,6 @@ const App: React.FC = () => {
     await addMessageToDb(chatId, messageData.authorId, messageData.text, messageData.sources);
   };
 
-  // Build active chat with messages
   const activeChat = useMemo(() => {
     if (!activeChatId) return null;
     const chatRoom = chatRooms.find((c) => c.id === activeChatId);
@@ -125,20 +128,35 @@ const App: React.FC = () => {
   }, [activeChatId, chatRooms, activeChatMessages]);
 
   return (
-    <div className="h-screen w-screen bg-gray-900 text-white flex flex-col md:flex-row antialiased">
+    <div className="h-screen w-screen bg-gray-900 text-white flex flex-col antialiased">
       {/* Public chat warning banner */}
-      <div className="absolute top-0 left-0 right-0 bg-yellow-600 text-black text-center py-1 text-sm z-50">
+      <div className="bg-yellow-600 text-black text-center py-1.5 px-3 text-sm z-50" dir="rtl">
         ⚠️ שימו לב: כל השיחות באתר חשופות לכל המבקרים. אל תשתפו מידע רגיש!
       </div>
 
-      <div className="flex flex-1 pt-8">
+      {/* Mobile top bar */}
+      <div className="md:hidden bg-panel-header-bg px-3 py-2 flex items-center gap-3">
+        <button
+          onClick={() => setIsSidebarOpen(true)}
+          className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg"
+        >
+          <Bars3Icon className="h-6 w-6" />
+        </button>
+        <span className="text-text-primary font-semibold">
+          {activeChat ? activeChat.topic : 'AI Chats'}
+        </span>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
         <ChatList
           chatRooms={chatRooms}
           activeChatId={activeChatId}
           setActiveChatId={setActiveChatId}
           onNewChat={() => setIsCreateChatOpen(true)}
           onManagePersonas={() => setIsPersonaManagerOpen(true)}
-          onManageStorage={() => {}} // No longer needed
+          onDeleteChat={deleteChatRoom}
+          isMobileOpen={isSidebarOpen}
+          onMobileClose={() => setIsSidebarOpen(false)}
         />
 
         <ChatView
@@ -146,6 +164,7 @@ const App: React.FC = () => {
           personasMap={personasMap}
           onSendMessage={addMessageToChat}
           onEditChat={() => activeChat && setEditingChatRoom(activeChat)}
+          onDeleteChat={activeChat ? () => deleteChatRoom(activeChat.id) : undefined}
         />
       </div>
 
@@ -156,6 +175,7 @@ const App: React.FC = () => {
         addPersona={addPersona}
         updatePersona={updatePersona}
         regenerateAvatar={regeneratePersonaAvatar}
+        deletePersona={deletePersona}
       />
 
       <CreateChatModal
