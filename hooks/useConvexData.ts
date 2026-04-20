@@ -161,19 +161,11 @@ export function useConvexData() {
     addPersona,
     updatePersona,
     deletePersona,
-    setPersonas: async (_newPersonas: Persona[]) => {
-      // This is for compatibility with the old code
-      // In practice, use addPersona/updatePersona/deletePersona
-    },
 
     // Chat room functions
     addChatRoom,
     updateChatRoom,
     deleteChatRoom,
-    setChatRooms: async (_newChatRooms: ChatRoom[]) => {
-      // This is for compatibility with the old code
-      // In practice, use addChatRoom/updateChatRoom/deleteChatRoom
-    },
 
     // Message functions
     addMessage,

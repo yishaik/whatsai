@@ -183,6 +183,7 @@ const App: React.FC = () => {
         onClose={() => setIsCreateChatOpen(false)}
         personas={personas}
         createChat={createChat}
+        onManagePersonas={() => { setIsCreateChatOpen(false); setIsPersonaManagerOpen(true); }}
       />
 
       <EditChatModal

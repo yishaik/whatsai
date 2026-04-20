@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Persona } from '../types';
 import { XMarkIcon } from './icons';
 import Avatar from './Avatar';
@@ -9,11 +9,22 @@ interface CreateChatModalProps {
   onClose: () => void;
   personas: Persona[];
   createChat: (topic: string, personaIds: string[]) => void;
+  onManagePersonas?: () => void;
 }
 
-const CreateChatModal: React.FC<CreateChatModalProps> = ({ isOpen, onClose, personas, createChat }) => {
+const CreateChatModal: React.FC<CreateChatModalProps> = ({ isOpen, onClose, personas, createChat, onManagePersonas }) => {
   const [topic, setTopic] = useState('');
   const [selectedPersonaIds, setSelectedPersonaIds] = useState<Set<string>>(new Set());
+
+  // Close on Escape
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -66,7 +77,18 @@ const CreateChatModal: React.FC<CreateChatModalProps> = ({ isOpen, onClose, pers
               <label className="block text-sm font-medium text-text-secondary mb-2">Select Personas (at least 1)</label>
               <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
                 {personas.length === 0 ? (
-                  <p className="text-text-secondary">You need to create a persona first.</p>
+                  <div className="text-center py-4">
+                    <p className="text-text-secondary mb-3">You need to create a persona first.</p>
+                    {onManagePersonas && (
+                      <button
+                        type="button"
+                        onClick={() => { onClose(); onManagePersonas(); }}
+                        className="text-accent-green hover:underline font-medium"
+                      >
+                        Go to Manage Personas →
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   personas.map(p => (
                     <div

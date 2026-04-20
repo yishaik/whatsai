@@ -48,7 +48,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
             <Avatar src={persona?.avatar} name={persona?.name} size={32} />
         </div>
       )}
-      <div className={`flex flex-col max-w-sm md:max-w-md lg:max-w-2xl`}>
+      <div className={`flex flex-col max-w-[85%] sm:max-w-sm md:max-w-md lg:max-w-2xl`}>
         {!isOwnMessage && (
             <span className={`text-sm font-bold mb-1 ml-3 ${authorColor}`}>
                 {authorName}

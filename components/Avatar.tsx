@@ -23,8 +23,8 @@ interface AvatarProps {
 }
 
 const Avatar: React.FC<AvatarProps> = ({ src, seed, size = 40, name }) => {
-  // If an image source is provided, use it.
-  if (src) {
+  // If a valid image source is provided, use it.
+  if (src && src.length > 10) {
     return (
       <img
         src={src}

@@ -32,6 +32,19 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
   const [viewingSourceUrl, setViewingSourceUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
+  // Track which user messages have already triggered AI responses
+  const respondedToRef = useRef<Set<string>>(new Set());
+  // Track the previous chatRoom ID to detect chat switches
+  const prevChatRoomIdRef = useRef<string | null>(null);
+
+  // Reset responded tracking when switching chats
+  useEffect(() => {
+    if (chatRoom?.id !== prevChatRoomIdRef.current) {
+      respondedToRef.current = new Set();
+      prevChatRoomIdRef.current = chatRoom?.id || null;
+    }
+  }, [chatRoom?.id]);
+  
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -42,7 +55,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
   
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputText.trim() && chatRoom) {
+    if (inputText.trim() && chatRoom && typingPersonas.size === 0) {
       onSendMessage(chatRoom.id, {
         authorId: USER_ID,
         text: inputText.trim(),
@@ -54,13 +67,16 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
 
   const triggerAIResponses = useCallback(async (lastMessage: Message) => {
     if (!chatRoom || lastMessage.authorId !== USER_ID) return;
+    
+    // Prevent duplicate responses to the same message
+    if (respondedToRef.current.has(lastMessage.id)) return;
+    respondedToRef.current.add(lastMessage.id);
 
     const personasInChat = chatRoom.personaIds.map(id => personasMap[id]);
     
     for (const persona of personasInChat) {
         setTypingPersonas(prev => new Set(prev).add(persona.id));
         try {
-            // A small delay to make it seem more natural
             await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + 500));
             const response = await generatePersonaResponse(persona, chatRoom.topic, [...chatRoom.messages], personasInChat, personasMap);
             onSendMessage(chatRoom.id, {
@@ -90,6 +106,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatRoom?.messages]);
 
+  const isGenerating = typingPersonas.size > 0;
 
   if (!chatRoom) {
     return (
@@ -105,14 +122,14 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
     <div className="w-full md:w-2/3 lg:w-3/4 flex flex-col bg-chat-bg">
       <header className="p-3 bg-panel-header-bg flex items-center gap-4 h-[60px] border-l border-black">
         <Avatar src={chatRoom.avatar} seed={chatRoom.topic} size={40} />
-        <div className="flex-1">
-          <h2 className="text-lg font-semibold text-text-primary">{chatRoom.topic}</h2>
-          <p className="text-sm text-text-secondary">
+        <div className="flex-1 min-w-0">
+          <h2 className="text-lg font-semibold text-text-primary truncate">{chatRoom.topic}</h2>
+          <p className="text-sm text-text-secondary truncate">
             {['You', ...chatRoom.personaIds.map(id => personasMap[id]?.name || 'Unknown')].join(', ')}
           </p>
         </div>
         {onEditChat && (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-shrink-0">
             <button 
               onClick={onEditChat}
               className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg"
@@ -133,7 +150,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
         )}
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
+      <main className="flex-1 overflow-y-auto p-3 md:p-6 space-y-3 md:space-y-4">
         {chatRoom.messages.map(msg => (
           <MessageBubble
             key={msg.id}
@@ -150,16 +167,32 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
       </main>
 
       <footer className="p-3 bg-panel-header-bg">
-        <form onSubmit={handleSendMessage} className="flex items-center gap-4">
+        <form onSubmit={handleSendMessage} className="flex items-center gap-3">
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Type a message..."
-            className="flex-1 bg-item-active-bg rounded-lg p-3 text-text-primary outline-none focus:ring-2 focus:ring-accent-green"
+            placeholder={isGenerating ? "AI is responding..." : "Type a message..."}
+            disabled={isGenerating}
+            className="flex-1 bg-item-active-bg rounded-lg p-3 text-text-primary outline-none focus:ring-2 focus:ring-accent-green disabled:opacity-50 disabled:cursor-not-allowed"
           />
-          <button type="submit" disabled={!inputText.trim()} className="bg-accent-green rounded-full p-3 text-white disabled:bg-gray-500 disabled:cursor-not-allowed transition">
-            <SendIcon className="h-6 w-6" />
+          <button
+            type="submit"
+            disabled={!inputText.trim() || isGenerating}
+            className={`rounded-full p-3 text-white transition flex-shrink-0 ${
+              isGenerating
+                ? 'bg-gray-500 cursor-not-allowed'
+                : 'bg-accent-green hover:bg-opacity-90 disabled:bg-gray-500 disabled:cursor-not-allowed'
+            }`}
+          >
+            {isGenerating ? (
+              <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            ) : (
+              <SendIcon className="h-6 w-6" />
+            )}
           </button>
         </form>
       </footer>

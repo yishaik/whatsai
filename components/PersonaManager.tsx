@@ -21,6 +21,17 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
   const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
   const [regeneratingAvatars, setRegeneratingAvatars] = useState<Set<string>>(new Set());
 
+  // Close on Escape
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const handleEditClick = (persona: Persona) => {
