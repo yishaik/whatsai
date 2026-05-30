@@ -25,6 +25,7 @@ const App: React.FC = () => {
     deleteChatRoom: deleteChatRoomFromDb,
     addMessage: addMessageToDb,
     claimResponseSlot,
+    uploadAvatar,
   } = useConvexData();
 
   const activeChatMessages = useChatMessages(activeChatId);
@@ -34,28 +35,40 @@ const App: React.FC = () => {
   const [editingChatRoom, setEditingChatRoom] = useState<ChatRoom | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  const addPersona = async (personaData: Omit<Persona, 'id' | 'avatar'>): Promise<Error | null> => {
-    let avatarUrl: string;
-    let errorToReport: Error | null = null;
-
+  // Generate an avatar, upload it to file storage, and return either a storage
+  // id or an inline fallback to persist. Never throws.
+  const buildAvatarFields = async (
+    name: string,
+    prompt: string,
+  ): Promise<{ avatarStorageId?: string; avatar?: string; error: Error | null }> => {
     try {
-      avatarUrl = await generateAvatar(personaData.name, personaData.prompt);
+      const dataUri = await generateAvatar(name, prompt);
+      try {
+        const avatarStorageId = await uploadAvatar(dataUri);
+        return { avatarStorageId, error: null };
+      } catch (uploadError) {
+        // Generation worked but upload failed — keep the image inline.
+        console.error('Avatar upload failed, storing inline:', uploadError);
+        return { avatar: dataUri, error: null };
+      }
     } catch (error) {
       console.error('Avatar generation failed, using fallback:', error);
-      avatarUrl = DEFAULT_AVATAR;
-      if (error instanceof Error) {
-        errorToReport = error;
-      }
+      return { avatar: DEFAULT_AVATAR, error: error instanceof Error ? error : null };
     }
+  };
+
+  const addPersona = async (personaData: Omit<Persona, 'id' | 'avatar'>): Promise<Error | null> => {
+    const { avatarStorageId, avatar, error } = await buildAvatarFields(personaData.name, personaData.prompt);
 
     await addPersonaToDb({
       name: personaData.name,
       prompt: personaData.prompt,
       canSearch: personaData.canSearch,
-      avatar: avatarUrl,
+      avatar,
+      avatarStorageId,
     });
 
-    return errorToReport;
+    return error;
   };
 
   const updatePersona = async (id: string, updates: Partial<Persona>) => {
@@ -66,12 +79,10 @@ const App: React.FC = () => {
     const persona = personas.find((p) => p.id === personaId);
     if (!persona) return;
 
-    try {
-      const newAvatar = await generateAvatar(persona.name, persona.prompt);
-      await updatePersonaInDb(personaId, { avatar: newAvatar });
-    } catch (error) {
-      console.error('Failed to regenerate avatar:', error);
-    }
+    const { avatarStorageId, avatar, error } = await buildAvatarFields(persona.name, persona.prompt);
+    // Generation failed — keep the existing avatar rather than reset to default.
+    if (error) return;
+    await updatePersonaInDb(personaId, { avatarStorageId, avatar });
   };
 
   const deletePersona = async (id: string) => {
@@ -86,8 +97,9 @@ const App: React.FC = () => {
     // Generate avatar in background
     try {
       const personaNames = personaIds.map((id) => personasMap[id]?.name || 'Unknown');
-      const avatar = await generateGroupChatAvatar(topic, personaNames);
-      await updateChatRoomInDb(chatId, { avatar });
+      const dataUri = await generateGroupChatAvatar(topic, personaNames);
+      const avatarStorageId = await uploadAvatar(dataUri);
+      await updateChatRoomInDb(chatId, { avatarStorageId });
     } catch (error) {
       console.error('Failed to generate chat avatar:', error);
     }
@@ -106,9 +118,10 @@ const App: React.FC = () => {
     if (!chatRoom) return;
 
     const personaNames = chatRoom.personaIds.map((id) => personasMap[id]?.name || 'Unknown');
-    const avatar = await generateGroupChatAvatar(chatRoom.topic, personaNames);
+    const dataUri = await generateGroupChatAvatar(chatRoom.topic, personaNames);
+    const avatarStorageId = await uploadAvatar(dataUri);
 
-    await updateChatRoomInDb(chatId, { avatar });
+    await updateChatRoomInDb(chatId, { avatarStorageId });
   };
 
   const addMessageToChat = async (
