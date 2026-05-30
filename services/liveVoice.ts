@@ -67,6 +67,7 @@ export interface LiveVoiceHandlers {
 
 export class LiveVoiceSession {
   private session: Session | null = null;
+  private opened = false;
   private captureCtx: AudioContext | null = null;
   private playbackCtx: AudioContext | null = null;
   private stream: MediaStream | null = null;
@@ -102,16 +103,27 @@ export class LiveVoiceSession {
         model,
         callbacks: {
           onopen: () => {
+            this.opened = true;
             if (!this.stopped) this.setStatus('listening');
           },
           onmessage: (msg: LiveServerMessage) => this.handleMessage(msg),
           onerror: (e: any) => {
-            console.error('Live session error:', e);
-            this.handlers.onError?.(e?.message ?? 'Voice connection error');
+            console.error('Live session error event:', e);
+            this.handlers.onError?.(e?.message || e?.reason || 'Voice connection error');
             this.setStatus('error');
           },
-          onclose: () => {
-            if (!this.stopped) this.setStatus('ended');
+          onclose: (e: any) => {
+            console.warn('Live session closed:', { code: e?.code, reason: e?.reason });
+            if (this.stopped) return;
+            const reason = e?.reason || `code ${e?.code ?? 'unknown'}`;
+            if (!this.opened) {
+              // Closed before it ever opened → surface why (bad model, rejected token, …).
+              this.handlers.onError?.(`Closed before connecting: ${reason}`);
+              this.setStatus('error');
+            } else {
+              this.handlers.onError?.(`Session ended: ${reason}`);
+              this.setStatus('ended');
+            }
           },
         },
         config: {

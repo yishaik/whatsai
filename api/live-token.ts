@@ -27,6 +27,8 @@ export default async function handler(req: any, res: any) {
     });
 
     const now = Date.now();
+    // Plain single-use, short-lived token. The client supplies the model + live
+    // config at connect time (kept unconstrained to avoid lock/mismatch errors).
     const token = await ai.authTokens.create({
       config: {
         uses: 1,
@@ -34,10 +36,6 @@ export default async function handler(req: any, res: any) {
         // run up to 30 minutes.
         newSessionExpireTime: new Date(now + 2 * 60 * 1000).toISOString(),
         expireTime: new Date(now + 30 * 60 * 1000).toISOString(),
-        liveConnectConstraints: {
-          model: LIVE_MODEL,
-          config: { responseModalities: ['AUDIO'] as any },
-        },
       },
     });
 
