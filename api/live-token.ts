@@ -30,6 +30,10 @@ export default async function handler(req: any, res: any) {
       typeof body.systemInstruction === 'string' ? body.systemInstruction : undefined;
     const voiceName: string | undefined =
       typeof body.voiceName === 'string' ? body.voiceName : undefined;
+    // Allow overriding the live model (used to find the one available on this
+    // key's tier); defaults to LIVE_MODEL.
+    const model: string =
+      typeof body.model === 'string' && body.model ? body.model : LIVE_MODEL;
 
     const ai = new GoogleGenAI({
       apiKey: getApiKey(),
@@ -43,7 +47,7 @@ export default async function handler(req: any, res: any) {
         newSessionExpireTime: new Date(now + 2 * 60 * 1000).toISOString(),
         expireTime: new Date(now + 30 * 60 * 1000).toISOString(),
         liveConnectConstraints: {
-          model: LIVE_MODEL,
+          model,
           config: {
             responseModalities: [Modality.AUDIO],
             ...(systemInstruction ? { systemInstruction } : {}),
@@ -59,7 +63,7 @@ export default async function handler(req: any, res: any) {
       throw new Error('Failed to mint ephemeral token.');
     }
 
-    return res.status(200).json({ token: token.name, model: LIVE_MODEL });
+    return res.status(200).json({ token: token.name, model });
   } catch (error) {
     console.error('Error minting live token:', error);
     return res.status(500).json({
