@@ -6,6 +6,7 @@ import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon
 import Avatar from './Avatar';
 import SourceViewerModal from './SourceViewerModal';
 import { generatePersonaResponse, streamPersonaResponse } from '../services/geminiService';
+import { speak, stopSpeaking, ttsSupported } from '../services/speech';
 
 // v1 attachments: images only, capped in count and size.
 const MAX_ATTACHMENTS = 4;
@@ -75,7 +76,9 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [failedPersonas, setFailedPersonas] = useState<string[]>([]);
+  const canSpeak = ttsSupported();
   const [viewingSourceUrl, setViewingSourceUrl] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -102,15 +105,31 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
       setFailedPersonas([]);
       setPendingFiles([]);
       setAttachError(null);
+      stopSpeaking();
+      setSpeakingId(null);
     }
   }, [chatRoom?.id]);
 
-  // Cancel any in-flight generation on unmount
+  // Cancel any in-flight generation and stop speech on unmount
   useEffect(() => {
     return () => {
       generationAbortRef.current?.abort();
+      stopSpeaking();
     };
   }, []);
+
+  const handleToggleSpeak = (msg: Message) => {
+    if (speakingId === msg.id) {
+      stopSpeaking();
+      setSpeakingId(null);
+      return;
+    }
+    setSpeakingId(msg.id);
+    speak(msg.text, msg.authorId, {
+      onend: () => setSpeakingId(prev => (prev === msg.id ? null : prev)),
+      onerror: () => setSpeakingId(prev => (prev === msg.id ? null : prev)),
+    });
+  };
   
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -344,6 +363,9 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
             persona={msg.authorId !== USER_ID ? personasMap[msg.authorId] : null}
             isOwnMessage={msg.authorId === USER_ID}
             onSourceClick={setViewingSourceUrl}
+            canSpeak={canSpeak}
+            isSpeaking={speakingId === msg.id}
+            onToggleSpeak={() => handleToggleSpeak(msg)}
           />
         ))}
         {Array.from(typingPersonas).map(id => {
