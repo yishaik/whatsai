@@ -97,7 +97,6 @@ npm run dev          # Vite frontend only
 npm run dev:vercel   # Full app: frontend + /api routes
 npm run build        # Production frontend build
 npm run preview      # Static preview of dist/
-npm run start        # Static Express server for dist/
 ```
 
 Use `npm run dev:vercel` when testing persona replies or avatar generation locally, because the AI routes live in `api/`.
@@ -168,7 +167,7 @@ Never expose `GEMINI_API_KEY` through Vite env injection or `VITE_*` variables f
 All chats and personas are stored locally in the browser. Clearing browser storage removes user data.
 
 ### 3. Preview mode
-`npm run preview` and `npm run start` serve static assets only. They do not emulate Vercel Functions.
+`npm run preview` serves static assets only. It does not emulate Vercel Functions.
 
 ### 4. Error handling
 Avatar generation can fail due to safety filters or API errors. The UI already falls back to default avatars when needed.

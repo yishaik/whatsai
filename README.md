@@ -34,7 +34,6 @@ Vercel should detect the project as a Vite application and build it with:
 - `npm run dev:vercel`: Runs the full app locally through `vercel dev` so both the frontend and API routes are available.
 - `npm run build`: Builds the frontend for production into `dist`.
 - `npm run preview`: Serves the built frontend locally for static preview only.
-- `npm run start`: Serves the built frontend with Express.
 
 ## Project structure
 
@@ -66,7 +65,6 @@ Vercel should detect the project as a Vite application and build it with:
 ├── index.tsx
 ├── package.json
 ├── README.md
-├── server.js
 ├── services
 │   └── geminiService.ts
 ├── tsconfig.json
@@ -83,4 +81,4 @@ Vercel should detect the project as a Vite application and build it with:
 ## Notes
 
 - `GEMINI_API_KEY` is the only environment variable you need for Gemini.
-- `npm run preview` and `npm run start` do not emulate Vercel Functions. Use `npm run dev:vercel` for full local functionality.
+- `npm run preview` does not emulate Vercel Functions. Use `npm run dev:vercel` for full local functionality.
