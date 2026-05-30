@@ -91,7 +91,10 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
     // Snapshot chat context; it must not change mid-loop if the user navigates.
     const chatId = chatRoom.id;
     const chatTopic = chatRoom.topic;
-    const historySnapshot = [...chatRoom.messages];
+    // Running history accumulates each persona's reply as it lands, so later
+    // personas in this round react to earlier ones — a real group conversation
+    // rather than N monologues all answering the same stale snapshot.
+    const runningHistory = [...chatRoom.messages];
 
     // Skip personas that were deleted while still referenced by this chat.
     const personasInChat = chatRoom.personaIds
@@ -120,10 +123,18 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
 
         setTypingPersonas(prev => new Set(prev).add(persona.id));
         try {
-            await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + 500));
+            const response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, signal);
             if (signal.aborted) return;
-            const response = await generatePersonaResponse(persona, chatTopic, historySnapshot, personasInChat, personasMap, signal);
-            if (signal.aborted) return;
+            // Make this reply visible to the next persona in the round. Convex's
+            // live query will reconcile the real message; this is only the local
+            // context fed to subsequent personas this round.
+            runningHistory.push({
+                id: `pending-${lastMessage.id}-${persona.id}`,
+                authorId: persona.id,
+                text: response.text,
+                timestamp: lastMessage.timestamp + runningHistory.length,
+                sources: response.sources,
+            });
             onSendMessage(chatId, {
                 authorId: persona.id,
                 text: response.text,
