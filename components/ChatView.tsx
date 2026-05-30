@@ -5,7 +5,7 @@ import MessageBubble from './MessageBubble';
 import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon, XMarkIcon } from './icons';
 import Avatar from './Avatar';
 import SourceViewerModal from './SourceViewerModal';
-import { generatePersonaResponse } from '../services/geminiService';
+import { generatePersonaResponse, streamPersonaResponse } from '../services/geminiService';
 
 // v1 attachments: images only, capped in count and size.
 const MAX_ATTACHMENTS = 4;
@@ -56,9 +56,25 @@ const TypingIndicator: React.FC<{ persona: Persona }> = ({ persona }) => (
     </div>
 );
 
+// A persona's reply as it streams in, with a blinking cursor. Kept deliberately
+// simple (no link/source processing — that happens once the final message lands
+// in Convex).
+const StreamingBubble: React.FC<{ persona: Persona; text: string }> = ({ persona, text }) => (
+    <div className="flex items-end gap-2 w-full justify-start">
+        <div className="mb-2"><Avatar src={persona.avatar} name={persona.name} size={32} /></div>
+        <div className="flex flex-col max-w-[85%] sm:max-w-sm md:max-w-md lg:max-w-2xl">
+            <span className="text-sm font-bold mb-1 ml-3 text-accent-blue">{persona.name}</span>
+            <div className="px-4 py-2 rounded-lg text-text-primary bg-message-in">
+                <p className="whitespace-pre-wrap">{text}<span className="animate-pulse">▋</span></p>
+            </div>
+        </div>
+    </div>
+);
+
 const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, onSendMessage, onUploadFile, onClaimResponse, onEditChat, onDeleteChat }) => {
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
+  const [streamingText, setStreamingText] = useState<Record<string, string>>({});
   const [failedPersonas, setFailedPersonas] = useState<string[]>([]);
   const [viewingSourceUrl, setViewingSourceUrl] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -82,6 +98,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
       respondedToRef.current = new Set();
       prevChatRoomIdRef.current = chatRoom?.id || null;
       setTypingPersonas(new Set());
+      setStreamingText({});
       setFailedPersonas([]);
       setPendingFiles([]);
       setAttachError(null);
@@ -101,7 +118,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
 
   useEffect(() => {
     scrollToBottom();
-  }, [chatRoom?.messages, typingPersonas]);
+  }, [chatRoom?.messages, typingPersonas, streamingText]);
   
   const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -211,7 +228,25 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
 
         setTypingPersonas(prev => new Set(prev).add(persona.id));
         try {
-            const response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, triggerImages, signal);
+            let response: Awaited<ReturnType<typeof streamPersonaResponse>>;
+            try {
+                // Stream tokens into a live bubble for this client.
+                response = await streamPersonaResponse(
+                    persona, chatTopic, runningHistory, personasInChat, personasMap, triggerImages,
+                    (full) => {
+                        if (!signal.aborted) {
+                            setStreamingText(prev => ({ ...prev, [persona.id]: full }));
+                        }
+                    },
+                    signal,
+                );
+            } catch (streamError) {
+                if (signal.aborted) return;
+                // Streaming failed — fall back to the non-streaming endpoint so a
+                // flaky stream never costs us the reply.
+                console.warn("Streaming failed, falling back to non-streaming:", streamError);
+                response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, triggerImages, signal);
+            }
             if (signal.aborted) return;
             // Make this reply visible to the next persona in the round. Convex's
             // live query will reconcile the real message; this is only the local
@@ -233,6 +268,11 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
             console.error("Failed to get AI response for", persona.name, error);
             setFailedPersonas(prev => [...prev, persona.name]);
         } finally {
+            setStreamingText(prev => {
+                const next = { ...prev };
+                delete next[persona.id];
+                return next;
+            });
             setTypingPersonas(prev => {
                 const newSet = new Set(prev);
                 newSet.delete(persona.id);
@@ -306,9 +346,14 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
             onSourceClick={setViewingSourceUrl}
           />
         ))}
-        {Array.from(typingPersonas).map(id => (
-            personasMap[id] ? <TypingIndicator key={id} persona={personasMap[id]} /> : null
-        ))}
+        {Array.from(typingPersonas).map(id => {
+            const persona = personasMap[id];
+            if (!persona) return null;
+            const partial = streamingText[id];
+            return partial
+                ? <StreamingBubble key={id} persona={persona} text={partial} />
+                : <TypingIndicator key={id} persona={persona} />;
+        })}
         {failedPersonas.map((name, i) => (
             <div key={`fail-${i}`} className="text-center text-xs text-red-400 bg-red-500/10 rounded-lg py-1.5 px-3 mx-auto max-w-md">
                 ⚠️ {name} couldn't respond. Please try again.

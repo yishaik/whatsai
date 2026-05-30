@@ -115,6 +115,80 @@ export const generatePersonaResponse = async (
   }, signal);
 };
 
+// Streaming variant: posts with `stream: true`, reads Server-Sent Events, and
+// invokes `onDelta` with the accumulated text as it grows. Resolves with the
+// final text + sources. Throws on stream error or non-2xx (callers can fall
+// back to the non-streaming generatePersonaResponse).
+export const streamPersonaResponse = async (
+  persona: Persona,
+  chatTopic: string,
+  history: Message[],
+  allPersonasInChat: Persona[],
+  personasMap: { [id: string]: Persona },
+  images: { url: string; mimeType: string }[],
+  onDelta: (fullText: string) => void,
+  signal?: AbortSignal,
+): Promise<PersonaResponsePayload> => {
+  const strippedPersonasMap: { [id: string]: Omit<Persona, 'avatar'> } = {};
+  for (const [id, p] of Object.entries(personasMap)) {
+    strippedPersonasMap[id] = stripAvatar(p);
+  }
+
+  const resp = await fetch('/api/persona-response', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      persona: stripAvatar(persona),
+      chatTopic,
+      history,
+      allPersonasInChat: allPersonasInChat.map(stripAvatar),
+      personasMap: strippedPersonasMap,
+      images,
+      stream: true,
+    }),
+    signal,
+  });
+
+  if (!resp.ok || !resp.body) {
+    throw new Error(`Stream request failed with status ${resp.status}`);
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullText = '';
+  let sources: Source[] = [];
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split('\n\n');
+    buffer = events.pop() ?? '';
+    for (const evt of events) {
+      const dataLine = evt.split('\n').find((l) => l.startsWith('data:'));
+      if (!dataLine) continue;
+      const json = dataLine.slice(5).trim();
+      if (!json) continue;
+      let payload: any;
+      try {
+        payload = JSON.parse(json);
+      } catch {
+        continue;
+      }
+      if (payload.error) throw new Error(payload.error);
+      if (typeof payload.delta === 'string') {
+        fullText += payload.delta;
+        onDelta(fullText);
+      }
+      if (payload.done) sources = payload.sources ?? [];
+    }
+  }
+
+  return { text: fullText.trim(), sources };
+};
+
 export const generateAvatar = async (name: string, prompt: string): Promise<string> => {
   const { image } = await postJson<AvatarPayload>('/api/avatar', {
     name,
