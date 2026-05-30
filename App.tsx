@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useConvexAuth } from 'convex/react';
 import { useAuthActions } from '@convex-dev/auth/react';
-import { useConvexData, Persona, ChatRoom } from './hooks/useConvexData';
+import { useConvexData, Persona, ChatRoom, Message } from './hooks/useConvexData';
 import { useChatMessages } from './hooks/useChatMessages';
 import ChatList from './components/ChatList';
 import ChatView from './components/ChatView';
@@ -28,6 +28,7 @@ const App: React.FC = () => {
     addMessage: addMessageToDb,
     claimResponseSlot,
     uploadAvatar,
+    uploadFile,
   } = useConvexData();
 
   const activeChatMessages = useChatMessages(activeChatId);
@@ -142,9 +143,9 @@ const App: React.FC = () => {
 
   const addMessageToChat = async (
     chatId: string,
-    messageData: { authorId: string; text: string; sources?: { title: string; uri: string }[] },
+    messageData: Omit<Message, 'id' | 'timestamp'>,
   ) => {
-    await addMessageToDb(chatId, messageData.authorId, messageData.text, messageData.sources);
+    await addMessageToDb(chatId, messageData.authorId, messageData.text, messageData.sources, messageData.attachments);
   };
 
   const activeChat = useMemo(() => {
@@ -194,6 +195,7 @@ const App: React.FC = () => {
           personasMap={personasMap}
           authReady={isAuthenticated}
           onSendMessage={addMessageToChat}
+          onUploadFile={uploadFile}
           onClaimResponse={claimResponseSlot}
           onEditChat={() => activeChat && setEditingChatRoom(activeChat)}
           onDeleteChat={activeChat ? () => deleteChatRoom(activeChat.id) : undefined}

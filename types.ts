@@ -11,12 +11,21 @@ export interface Source {
   uri: string;
 }
 
+export interface Attachment {
+  storageId: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  url?: string | null; // resolved fetchable URL (added by the server on read)
+}
+
 export interface Message {
   id: string;
   authorId: string; // 'user' or persona.id
   text: string;
   timestamp: number;
   sources?: Source[];
+  attachments?: Attachment[];
 }
 
 export interface ChatRoom {

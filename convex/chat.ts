@@ -277,6 +277,10 @@ export const deleteChatRoom = mutation({
       .collect();
 
     for (const message of messages) {
+      // Delete any attached files alongside the message.
+      for (const a of message.attachments ?? []) {
+        await ctx.storage.delete(a.storageId);
+      }
       await ctx.db.delete(message._id);
     }
 
@@ -315,8 +319,22 @@ export const getMessages = query({
       )
       .order("desc")
       .take(MESSAGE_LIMIT);
-    // Return in chronological (ascending) order for display.
-    return recent.reverse();
+    // Return in chronological (ascending) order for display, resolving each
+    // attachment's storage id to a fetchable URL.
+    const ordered = recent.reverse();
+    return await Promise.all(
+      ordered.map(async (m) => ({
+        ...m,
+        attachments: m.attachments
+          ? await Promise.all(
+              m.attachments.map(async (a) => ({
+                ...a,
+                url: await ctx.storage.getUrl(a.storageId),
+              })),
+            )
+          : undefined,
+      })),
+    );
   },
 });
 
@@ -331,6 +349,16 @@ export const addMessage = mutation({
         v.object({
           title: v.string(),
           uri: v.string(),
+        }),
+      ),
+    ),
+    attachments: v.optional(
+      v.array(
+        v.object({
+          storageId: v.id("_storage"),
+          name: v.string(),
+          mimeType: v.string(),
+          size: v.number(),
         }),
       ),
     ),
@@ -364,6 +392,10 @@ export const deleteMessage = mutation({
     if (!message) return;
     const room = await ctx.db.get(message.chatRoomId);
     if (room) assertCanModify(room, userId);
+    // Remove any attached files so they don't orphan in storage.
+    for (const a of message.attachments ?? []) {
+      await ctx.storage.delete(a.storageId);
+    }
     await ctx.db.delete(args.id);
   },
 });

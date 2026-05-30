@@ -2,6 +2,9 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { Id } from "../convex/_generated/dataModel";
 import { useState, useMemo } from "react";
+import { Attachment } from "../types";
+
+export type { Attachment };
 
 // Types matching the existing app types
 export interface Persona {
@@ -18,6 +21,7 @@ export interface Message {
   text: string;
   timestamp: number;
   sources?: { title: string; uri: string }[];
+  attachments?: Attachment[];
 }
 
 export interface ChatRoom {
@@ -170,18 +174,47 @@ export function useConvexData() {
     }
   };
 
+  // Upload an arbitrary file to Convex storage; returns an Attachment reference
+  // (without a resolved URL — the server adds that when messages are read back).
+  const uploadFile = async (file: File): Promise<Attachment> => {
+    const uploadUrl = await generateUploadUrlMutation();
+    const result = await fetch(uploadUrl, {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!result.ok) {
+      throw new Error(`File upload failed with status ${result.status}`);
+    }
+    const { storageId } = await result.json();
+    return {
+      storageId: storageId as string,
+      name: file.name,
+      mimeType: file.type || "application/octet-stream",
+      size: file.size,
+    };
+  };
+
   // Message functions
   const addMessage = async (
     chatRoomId: string,
     authorId: string,
     text: string,
     sources?: { title: string; uri: string }[],
+    attachments?: Attachment[],
   ) => {
     const id = await addMessageMutation({
       chatRoomId: chatRoomId as Id<"chatRooms">,
       authorId,
       text,
       sources,
+      // Persist only the storage reference; drop any resolved url field.
+      attachments: attachments?.map((a) => ({
+        storageId: a.storageId as Id<"_storage">,
+        name: a.name,
+        mimeType: a.mimeType,
+        size: a.size,
+      })),
     });
     return id;
   };
@@ -223,6 +256,7 @@ export function useConvexData() {
 
     // Message functions
     addMessage,
+    uploadFile,
     claimResponseSlot,
     deleteMessage: (id: string) => deleteMessageMutation({ id: id as Id<"messages"> }),
   };
