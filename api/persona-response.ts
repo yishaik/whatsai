@@ -146,19 +146,48 @@ Do not prefix your response with your name (e.g., don't write "${personaWithoutA
       ? 'The user attached the image(s) below with their latest message. Take them into account.\n\n'
       : '';
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.1-flash-lite-preview',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: `This is the chat history so far:\n${formattedHistory}\n\n${imageNote}Your turn is next. What is your reply?` },
-            ...imageParts,
-          ],
-        },
-      ],
-      config,
-    });
+    const model = 'gemini-3.1-flash-lite-preview';
+    const contents = [
+      {
+        role: 'user',
+        parts: [
+          { text: `This is the chat history so far:\n${formattedHistory}\n\n${imageNote}Your turn is next. What is your reply?` },
+          ...imageParts,
+        ],
+      },
+    ];
+
+    // Streaming path: emit Server-Sent Events. The client renders deltas live
+    // and persists the final message to Convex once the stream is done.
+    if (body.stream === true) {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+      });
+      if (typeof res.flushHeaders === 'function') res.flushHeaders();
+      const send = (obj: any) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+      try {
+        const stream = await ai.models.generateContentStream({ model, contents, config });
+        let grounding: any = undefined;
+        for await (const chunk of stream) {
+          const delta = chunk.text ?? '';
+          if (delta) send({ delta });
+          const gm = chunk.candidates?.[0]?.groundingMetadata;
+          if (gm) grounding = gm;
+        }
+        const sources = personaWithoutAvatar.canSearch ? extractSources(grounding) : [];
+        send({ done: true, sources });
+      } catch (streamError) {
+        console.error('Error streaming persona response:', streamError);
+        send({ error: streamError instanceof Error ? streamError.message : 'stream failed' });
+      } finally {
+        res.end();
+      }
+      return;
+    }
+
+    const response = await ai.models.generateContent({ model, contents, config });
 
     const responseText = response.text?.trim() ?? '';
     const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
