@@ -1,20 +1,21 @@
 
 import React, { useState, useEffect } from 'react';
 import { Persona } from '../types';
-import { XMarkIcon } from './icons';
+import { XMarkIcon, LockClosedIcon } from './icons';
 import Avatar from './Avatar';
 
 interface CreateChatModalProps {
   isOpen: boolean;
   onClose: () => void;
   personas: Persona[];
-  createChat: (topic: string, personaIds: string[]) => void;
+  createChat: (topic: string, personaIds: string[], visibility: 'public' | 'private') => void;
   onManagePersonas?: () => void;
 }
 
 const CreateChatModal: React.FC<CreateChatModalProps> = ({ isOpen, onClose, personas, createChat, onManagePersonas }) => {
   const [topic, setTopic] = useState('');
   const [selectedPersonaIds, setSelectedPersonaIds] = useState<Set<string>>(new Set());
+  const [isPrivate, setIsPrivate] = useState(false);
 
   // Close on Escape
   useEffect(() => {
@@ -43,9 +44,10 @@ const CreateChatModal: React.FC<CreateChatModalProps> = ({ isOpen, onClose, pers
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (topic && selectedPersonaIds.size > 0) {
-      createChat(topic, Array.from(selectedPersonaIds));
+      createChat(topic, Array.from(selectedPersonaIds), isPrivate ? 'private' : 'public');
       setTopic('');
       setSelectedPersonaIds(new Set());
+      setIsPrivate(false);
       onClose();
     }
   };
@@ -103,6 +105,19 @@ const CreateChatModal: React.FC<CreateChatModalProps> = ({ isOpen, onClose, pers
                 )}
               </div>
             </div>
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={isPrivate}
+                onChange={(e) => setIsPrivate(e.target.checked)}
+                className="h-4 w-4 rounded accent-accent-green"
+              />
+              <span className="flex items-center gap-1.5 text-sm text-text-primary">
+                <LockClosedIcon className="h-4 w-4 text-text-secondary" />
+                Private chat
+              </span>
+              <span className="text-xs text-text-secondary">— only you can see it</span>
+            </label>
           </div>
           <div className="p-4 bg-panel-header-bg rounded-b-lg flex justify-end">
             <button

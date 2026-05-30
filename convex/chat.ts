@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 // Cap how many of a chat's most recent messages load at once. Bounds payload
 // for long chats; older messages are not fetched.
@@ -27,6 +28,61 @@ const resolveAvatar = async (
   }
   return doc.avatar ?? "";
 };
+
+// ==================== ACCESS CONTROL ====================
+// Rooms are public by default (legacy rows predate auth and have no
+// visibility/owner — they read as public, unowned rooms). Private rooms are
+// only visible to and modifiable by their owner.
+
+type RoomAccess = { ownerId?: Id<"users">; visibility?: "public" | "private" };
+
+const isPrivate = (room: RoomAccess) => room.visibility === "private";
+
+// Read access: public rooms are world-readable; private rooms only by owner.
+const canRead = (room: RoomAccess, userId: Id<"users"> | null) =>
+  !isPrivate(room) || (!!userId && room.ownerId === userId);
+
+// Post access (add a message / claim a reply): private rooms are owner-only;
+// public rooms accept any authenticated identity (anonymous counts).
+const assertCanPost = (room: RoomAccess, userId: Id<"users"> | null) => {
+  if (isPrivate(room)) {
+    if (!userId || room.ownerId !== userId) throw new Error("Unauthorized");
+  } else if (!userId) {
+    throw new Error("Not authenticated");
+  }
+};
+
+// Modify access (edit / delete a room or its messages): private rooms and owned
+// public rooms are owner-only; legacy unowned public rooms stay open to any
+// authenticated identity.
+const assertCanModify = (room: RoomAccess, userId: Id<"users"> | null) => {
+  if (room.ownerId) {
+    if (room.ownerId !== userId) throw new Error("Unauthorized");
+  } else if (isPrivate(room)) {
+    throw new Error("Unauthorized"); // private implies an owner; fail closed
+  } else if (!userId) {
+    throw new Error("Not authenticated");
+  }
+};
+
+// The currently authenticated user (or null). `isAnonymous` distinguishes a
+// silent anonymous session from a real signed-in account, so the UI can show a
+// "Sign in" prompt vs. an account menu.
+export const getCurrentUser = query({
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+    const user = await ctx.db.get(userId);
+    if (!user) return null;
+    return {
+      id: user._id,
+      name: user.name ?? null,
+      email: user.email ?? null,
+      image: user.image ?? null,
+      isAnonymous: user.isAnonymous === true,
+    };
+  },
+});
 
 // Generate a short-lived URL the client can POST an avatar image to.
 export const generateUploadUrl = mutation({
@@ -110,15 +166,18 @@ export const deletePersona = mutation({
 
 // ==================== CHAT ROOMS ====================
 
-// Get all chat rooms
+// Get all chat rooms visible to the caller: every public room plus the caller's
+// own private rooms. Other users' private rooms are filtered out.
 export const getAllChatRooms = query({
   handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
     const rooms = await ctx.db
       .query("chatRooms")
       .order("desc")
       .take(CHAT_ROOM_LIMIT);
+    const visible = rooms.filter((r) => canRead(r, userId));
     return await Promise.all(
-      rooms.map(async (r) => ({
+      visible.map(async (r) => ({
         ...r,
         avatar: await resolveAvatar(ctx.storage, r),
       })),
@@ -126,28 +185,42 @@ export const getAllChatRooms = query({
   },
 });
 
-// Get a single chat room
+// Get a single chat room. Returns null for a private room the caller doesn't
+// own (treated as not found so existence isn't leaked).
 export const getChatRoom = query({
   args: { id: v.id("chatRooms") },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
     const room = await ctx.db.get(args.id);
-    if (!room) return null;
+    if (!room || !canRead(room, userId)) return null;
     return { ...room, avatar: await resolveAvatar(ctx.storage, room) };
   },
 });
 
-// Create a new chat room
+// Create a new chat room, owned by the caller. Private rooms require an
+// authenticated identity (anonymous suffices).
 export const createChatRoom = mutation({
   args: {
     topic: v.string(),
     avatar: v.optional(v.string()),
     avatarStorageId: v.optional(v.id("_storage")),
     personaIds: v.array(v.id("personas")),
+    visibility: v.optional(v.union(v.literal("public"), v.literal("private"))),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    const visibility = args.visibility ?? "public";
+    if (visibility === "private" && !userId) {
+      throw new Error("Not authenticated");
+    }
     const now = Date.now();
     const chatRoomId = await ctx.db.insert("chatRooms", {
-      ...args,
+      topic: args.topic,
+      avatar: args.avatar,
+      avatarStorageId: args.avatarStorageId,
+      personaIds: args.personaIds,
+      ownerId: userId ?? undefined,
+      visibility,
       createdAt: now,
       updatedAt: now,
     });
@@ -155,7 +228,7 @@ export const createChatRoom = mutation({
   },
 });
 
-// Update a chat room
+// Update a chat room (owner-only for private/owned rooms).
 export const updateChatRoom = mutation({
   args: {
     id: v.id("chatRooms"),
@@ -163,12 +236,20 @@ export const updateChatRoom = mutation({
     avatar: v.optional(v.string()),
     avatarStorageId: v.optional(v.id("_storage")),
     personaIds: v.optional(v.array(v.id("personas"))),
+    visibility: v.optional(v.union(v.literal("public"), v.literal("private"))),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
+    const userId = await getAuthUserId(ctx);
+    const existing = await ctx.db.get(id);
+    if (!existing) throw new Error("Chat room not found");
+    assertCanModify(existing, userId);
+    // Can't make a room private without an owner to scope it to.
+    if (updates.visibility === "private" && !existing.ownerId && !userId) {
+      throw new Error("Not authenticated");
+    }
     if (updates.avatarStorageId) {
-      const existing = await ctx.db.get(id);
-      if (existing?.avatarStorageId && existing.avatarStorageId !== updates.avatarStorageId) {
+      if (existing.avatarStorageId && existing.avatarStorageId !== updates.avatarStorageId) {
         await ctx.storage.delete(existing.avatarStorageId);
       }
       updates.avatar = undefined;
@@ -180,10 +261,15 @@ export const updateChatRoom = mutation({
   },
 });
 
-// Delete a chat room and its messages
+// Delete a chat room and its messages (owner-only for private/owned rooms).
 export const deleteChatRoom = mutation({
   args: { id: v.id("chatRooms") },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    const target = await ctx.db.get(args.id);
+    if (!target) return;
+    assertCanModify(target, userId);
+
     // Delete all messages in this chat room
     const messages = await ctx.db
       .query("messages")
@@ -205,9 +291,8 @@ export const deleteChatRoom = mutation({
     }
 
     // Delete the chat room (and its stored avatar, if any)
-    const room = await ctx.db.get(args.id);
-    if (room?.avatarStorageId) {
-      await ctx.storage.delete(room.avatarStorageId);
+    if (target.avatarStorageId) {
+      await ctx.storage.delete(target.avatarStorageId);
     }
     await ctx.db.delete(args.id);
   },
@@ -219,6 +304,10 @@ export const deleteChatRoom = mutation({
 export const getMessages = query({
   args: { chatRoomId: v.id("chatRooms") },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    const room = await ctx.db.get(args.chatRoomId);
+    // Don't leak messages from a private room the caller can't read.
+    if (!room || !canRead(room, userId)) return [];
     const recent = await ctx.db
       .query("messages")
       .withIndex("by_chat_room", (q) =>
@@ -247,6 +336,11 @@ export const addMessage = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    const room = await ctx.db.get(args.chatRoomId);
+    if (!room) throw new Error("Chat room not found");
+    assertCanPost(room, userId);
+
     const messageId = await ctx.db.insert("messages", {
       ...args,
       timestamp: Date.now(),
@@ -261,10 +355,15 @@ export const addMessage = mutation({
   },
 });
 
-// Delete a message
+// Delete a message (gated by modify access on its chat room).
 export const deleteMessage = mutation({
   args: { id: v.id("messages") },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    const message = await ctx.db.get(args.id);
+    if (!message) return;
+    const room = await ctx.db.get(message.chatRoomId);
+    if (room) assertCanModify(room, userId);
     await ctx.db.delete(args.id);
   },
 });
@@ -286,6 +385,11 @@ export const claimResponseSlot = mutation({
     personaId: v.string(),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    const room = await ctx.db.get(args.chatRoomId);
+    if (!room) return false;
+    assertCanPost(room, userId);
+
     const now = Date.now();
 
     const existing = await ctx.db

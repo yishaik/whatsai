@@ -10,6 +10,7 @@ import { generatePersonaResponse } from '../services/geminiService';
 interface ChatViewProps {
   chatRoom: ChatRoom | null;
   personasMap: { [id: string]: Persona };
+  authReady: boolean;
   onSendMessage: (chatId: string, message: Omit<Message, 'id' | 'timestamp'>) => void;
   onClaimResponse: (chatId: string, triggerMessageId: string, personaId: string) => Promise<boolean>;
   onEditChat?: () => void;
@@ -27,7 +28,7 @@ const TypingIndicator: React.FC<{ persona: Persona }> = ({ persona }) => (
     </div>
 );
 
-const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessage, onClaimResponse, onEditChat, onDeleteChat }) => {
+const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, onSendMessage, onClaimResponse, onEditChat, onDeleteChat }) => {
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
   const [failedPersonas, setFailedPersonas] = useState<string[]>([]);
@@ -70,7 +71,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
   
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputText.trim() && chatRoom && typingPersonas.size === 0) {
+    if (inputText.trim() && chatRoom && typingPersonas.size === 0 && authReady) {
       setFailedPersonas([]);
       onSendMessage(chatRoom.id, {
         authorId: USER_ID,
@@ -235,13 +236,13 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder={isGenerating ? "AI is responding..." : "Type a message..."}
-            disabled={isGenerating}
+            placeholder={!authReady ? "Connecting..." : isGenerating ? "AI is responding..." : "Type a message..."}
+            disabled={isGenerating || !authReady}
             className="flex-1 bg-item-active-bg rounded-lg p-3 text-text-primary outline-none focus:ring-2 focus:ring-accent-green disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <button
             type="submit"
-            disabled={!inputText.trim() || isGenerating}
+            disabled={!inputText.trim() || isGenerating || !authReady}
             className={`rounded-full p-3 text-white transition flex-shrink-0 ${
               isGenerating
                 ? 'bg-gray-500 cursor-not-allowed'
