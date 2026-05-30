@@ -2,6 +2,14 @@ import React from 'react';
 import { Message, Persona, Source, Attachment } from '../types';
 import Avatar from './Avatar';
 import { LinkIcon, PaperClipIcon } from './icons';
+import LinkPreviewCard from './LinkPreviewCard';
+
+// Up to 3 unique http(s) URLs in a message (mirrors convex/links.ts extractUrls).
+const extractUrls = (text: string): string[] => {
+  const matches = text.match(/\bhttps?:\/\/[^\s<>"')]+/gi) ?? [];
+  const cleaned = matches.map((u) => u.replace(/[.,;:!?)]+$/, ''));
+  return Array.from(new Set(cleaned)).slice(0, 3);
+};
 
 interface MessageBubbleProps {
   message: Message;
@@ -68,6 +76,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
   const authorName = isOwnMessage ? 'You' : persona?.name || 'Unknown';
   const authorColor = isOwnMessage ? 'text-accent-green' : 'text-accent-blue';
   const attachments = message.attachments ?? [];
+  const urls = extractUrls(message.text);
 
   return (
     <div className={`flex items-end gap-2 w-full ${alignment}`}>
@@ -98,6 +107,13 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
           <div className="mt-2 grid grid-cols-1 gap-2">
             {message.sources.map((source, index) => (
               <SourceCard key={index} source={source} onSourceClick={onSourceClick} />
+            ))}
+          </div>
+        )}
+        {urls.length > 0 && (
+          <div className="mt-2 grid grid-cols-1 gap-2">
+            {urls.map((url) => (
+              <LinkPreviewCard key={url} url={url} />
             ))}
           </div>
         )}

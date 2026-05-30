@@ -3,6 +3,7 @@ import { action, internalMutation, internalQuery, mutation, query } from "./_gen
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { extractUrls } from "./links";
 
 // Cap how many of a chat's most recent messages load at once. Bounds payload
 // for long chats; older messages are not fetched.
@@ -378,6 +379,19 @@ export const addMessage = mutation({
     await ctx.db.patch(args.chatRoomId, {
       updatedAt: Date.now(),
     });
+
+    // Kick off a link-preview fetch for each new URL (insert a pending row first
+    // so the same URL isn't scheduled twice — this runs in a transaction).
+    for (const url of extractUrls(args.text)) {
+      const existing = await ctx.db
+        .query("linkPreviews")
+        .withIndex("by_url", (q) => q.eq("url", url))
+        .first();
+      if (!existing) {
+        await ctx.db.insert("linkPreviews", { url, status: "pending", fetchedAt: Date.now() });
+        await ctx.scheduler.runAfter(0, internal.links.fetchLinkPreview, { url });
+      }
+    }
 
     return messageId;
   },

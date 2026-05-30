@@ -62,6 +62,19 @@ export default defineSchema({
     ),
   }).index("by_chat_room", ["chatRoomId"]),
 
+  // Cached link previews (OpenGraph metadata), keyed by URL. Populated by a
+  // scheduled action when a message containing a URL is posted; messages render
+  // a card by reactively querying this table.
+  linkPreviews: defineTable({
+    url: v.string(),
+    status: v.union(v.literal("pending"), v.literal("done"), v.literal("error")),
+    title: v.optional(v.string()),
+    description: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+    siteName: v.optional(v.string()),
+    fetchedAt: v.number(),
+  }).index("by_url", ["url"]),
+
   // Atomic claims so only one client generates a given persona's reply to a
   // given user message (chats are shared/public — multiple clients observe the
   // same message and would otherwise each generate a duplicate response).
