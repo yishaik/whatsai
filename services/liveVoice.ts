@@ -87,17 +87,26 @@ export class LiveVoiceSession {
   async start(systemInstruction: string, voiceName: string): Promise<void> {
     this.setStatus('connecting');
     try {
-      // 1) Mint an ephemeral token.
-      const resp = await fetch('/api/live-token', { method: 'POST' });
+      // 1) Mint an ephemeral token. The model, persona system prompt and voice
+      //    are locked into the token's constraints server-side (ephemeral tokens
+      //    use the constrained Live method, which reads config from the token).
+      const resp = await fetch('/api/live-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemInstruction, voiceName }),
+      });
       if (!resp.ok) {
-        throw new Error(`Token request failed (${resp.status})`);
+        let detail = `${resp.status}`;
+        try { detail = (await resp.json()).error ?? detail; } catch { /* noop */ }
+        throw new Error(`Token request failed: ${detail}`);
       }
       const { token, model } = (await resp.json()) as { token: string; model: string };
 
       // 2) Acquire the microphone before connecting.
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      // 3) Connect to Gemini Live with the ephemeral token.
+      // 3) Connect to Gemini Live with the ephemeral token. Config is supplied by
+      //    the token's constraints, so we only echo the response modality here.
       const ai = new GoogleGenAI({ apiKey: token, httpOptions: { apiVersion: 'v1alpha' } });
       this.session = await ai.live.connect({
         model,
@@ -117,7 +126,6 @@ export class LiveVoiceSession {
             if (this.stopped) return;
             const reason = e?.reason || `code ${e?.code ?? 'unknown'}`;
             if (!this.opened) {
-              // Closed before it ever opened → surface why (bad model, rejected token, …).
               this.handlers.onError?.(`Closed before connecting: ${reason}`);
               this.setStatus('error');
             } else {
@@ -128,8 +136,6 @@ export class LiveVoiceSession {
         },
         config: {
           responseModalities: [Modality.AUDIO],
-          systemInstruction,
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
         },
       });
 

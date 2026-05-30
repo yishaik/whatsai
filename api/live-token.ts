@@ -1,8 +1,7 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Modality } from '@google/genai';
 
 // The Gemini Live model used for real-time voice. If this id isn't available on
-// the API key's tier, swap it here (e.g. a 2.5 native-audio model) — the client
-// uses whatever this endpoint returns.
+// the API key's tier, swap it here — the client uses whatever this returns.
 const LIVE_MODEL = 'gemini-2.0-flash-live-001';
 
 const getApiKey = (): string => {
@@ -13,29 +12,46 @@ const getApiKey = (): string => {
   return apiKey;
 };
 
-// Mints a short-lived, single-use ephemeral token so the browser can open a
+// Mints a single-use, short-lived ephemeral token so the browser can open a
 // Gemini Live session directly without ever seeing GEMINI_API_KEY.
+//
+// Ephemeral tokens connect via the *constrained* Live method, which takes the
+// model + config from the token's liveConnectConstraints (NOT from the client's
+// connect call). So the model, response modality, persona system prompt and
+// voice are all locked in here at mint time.
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
+    const body = req.body || {};
+    const systemInstruction: string | undefined =
+      typeof body.systemInstruction === 'string' ? body.systemInstruction : undefined;
+    const voiceName: string | undefined =
+      typeof body.voiceName === 'string' ? body.voiceName : undefined;
+
     const ai = new GoogleGenAI({
       apiKey: getApiKey(),
       httpOptions: { apiVersion: 'v1alpha' },
     });
 
     const now = Date.now();
-    // Plain single-use, short-lived token. The client supplies the model + live
-    // config at connect time (kept unconstrained to avoid lock/mismatch errors).
     const token = await ai.authTokens.create({
       config: {
         uses: 1,
-        // Token usable to OPEN a session for 2 minutes; the session itself may
-        // run up to 30 minutes.
         newSessionExpireTime: new Date(now + 2 * 60 * 1000).toISOString(),
         expireTime: new Date(now + 30 * 60 * 1000).toISOString(),
+        liveConnectConstraints: {
+          model: LIVE_MODEL,
+          config: {
+            responseModalities: [Modality.AUDIO],
+            ...(systemInstruction ? { systemInstruction } : {}),
+            ...(voiceName
+              ? { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } } }
+              : {}),
+          },
+        },
       },
     });
 
