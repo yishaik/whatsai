@@ -40,6 +40,32 @@ const formatChatHistory = (
     .join('\n');
 };
 
+// Fetch image attachments and convert them to Gemini inlineData parts. Skips
+// any that fail to fetch and stops once a total-bytes budget is reached, so a
+// big or broken attachment can't blow up the request.
+const MAX_IMAGE_BYTES_TOTAL = 15 * 1024 * 1024;
+
+const buildImageParts = async (
+  images: { url: string; mimeType: string }[],
+): Promise<{ inlineData: { mimeType: string; data: string } }[]> => {
+  const parts: { inlineData: { mimeType: string; data: string } }[] = [];
+  let total = 0;
+  for (const img of images) {
+    if (!img?.url || !img?.mimeType?.startsWith('image/')) continue;
+    try {
+      const resp = await fetch(img.url);
+      if (!resp.ok) continue;
+      const buf = Buffer.from(await resp.arrayBuffer());
+      if (total + buf.length > MAX_IMAGE_BYTES_TOTAL) break;
+      total += buf.length;
+      parts.push({ inlineData: { mimeType: img.mimeType, data: buf.toString('base64') } });
+    } catch (error) {
+      console.error('Failed to fetch attachment for vision input:', error);
+    }
+  }
+  return parts;
+};
+
 const extractSources = (groundingMetadata: any): { title: string; uri: string }[] => {
   if (!groundingMetadata?.groundingChunks?.length) {
     return [];
@@ -85,6 +111,7 @@ export default async function handler(req: any, res: any) {
     
     const chatTopic = body.chatTopic || 'Chat';
     const history = body.history || [];
+    const images = Array.isArray(body.images) ? body.images : [];
 
     if (!personaWithoutAvatar?.id || !personaWithoutAvatar?.name || !personaWithoutAvatar?.prompt || !chatTopic) {
       return res.status(400).json({ error: 'Missing required fields.' });
@@ -114,9 +141,22 @@ Do not prefix your response with your name (e.g., don't write "${personaWithoutA
       config.tools = [{ googleSearch: {} }];
     }
 
+    const imageParts = await buildImageParts(images);
+    const imageNote = imageParts.length
+      ? 'The user attached the image(s) below with their latest message. Take them into account.\n\n'
+      : '';
+
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-lite-preview',
-      contents: `This is the chat history so far:\n${formattedHistory}\n\nYour turn is next. What is your reply?`,
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: `This is the chat history so far:\n${formattedHistory}\n\n${imageNote}Your turn is next. What is your reply?` },
+            ...imageParts,
+          ],
+        },
+      ],
       config,
     });
 

@@ -17,6 +17,7 @@ export function useChatMessages(chatRoomId: string | null) {
     text: m.text,
     timestamp: m.timestamp,
     sources: m.sources,
+    attachments: m.attachments,
   }));
 
   return messages;

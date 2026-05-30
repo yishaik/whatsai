@@ -1,21 +1,49 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ChatRoom, Persona, Message } from '../types';
+import { ChatRoom, Persona, Message, Attachment } from '../types';
 import { USER_ID } from '../constants';
 import MessageBubble from './MessageBubble';
-import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon } from './icons';
+import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon, XMarkIcon } from './icons';
 import Avatar from './Avatar';
 import SourceViewerModal from './SourceViewerModal';
 import { generatePersonaResponse } from '../services/geminiService';
+
+// v1 attachments: images only, capped in count and size.
+const MAX_ATTACHMENTS = 4;
+const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
 
 interface ChatViewProps {
   chatRoom: ChatRoom | null;
   personasMap: { [id: string]: Persona };
   authReady: boolean;
   onSendMessage: (chatId: string, message: Omit<Message, 'id' | 'timestamp'>) => void;
+  onUploadFile: (file: File) => Promise<Attachment>;
   onClaimResponse: (chatId: string, triggerMessageId: string, personaId: string) => Promise<boolean>;
   onEditChat?: () => void;
   onDeleteChat?: () => void;
 }
+
+// Thumbnail for a not-yet-sent image, with its own object-URL lifecycle.
+const PendingThumb: React.FC<{ file: File; onRemove: () => void }> = ({ file, onRemove }) => {
+  const [url, setUrl] = useState<string>('');
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+  return (
+    <div className="relative flex-shrink-0">
+      {url && <img src={url} alt={file.name} className="h-16 w-16 rounded-md object-cover" />}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute -top-1.5 -right-1.5 bg-gray-900 text-white rounded-full p-0.5 hover:bg-red-600"
+        title="Remove"
+      >
+        <XMarkIcon className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+};
 
 const TypingIndicator: React.FC<{ persona: Persona }> = ({ persona }) => (
     <div className="flex items-center gap-2 p-2">
@@ -28,11 +56,15 @@ const TypingIndicator: React.FC<{ persona: Persona }> = ({ persona }) => (
     </div>
 );
 
-const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, onSendMessage, onClaimResponse, onEditChat, onDeleteChat }) => {
+const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, onSendMessage, onUploadFile, onClaimResponse, onEditChat, onDeleteChat }) => {
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
   const [failedPersonas, setFailedPersonas] = useState<string[]>([]);
   const [viewingSourceUrl, setViewingSourceUrl] = useState<string | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Track which user messages have already triggered AI responses
@@ -51,6 +83,8 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
       prevChatRoomIdRef.current = chatRoom?.id || null;
       setTypingPersonas(new Set());
       setFailedPersonas([]);
+      setPendingFiles([]);
+      setAttachError(null);
     }
   }, [chatRoom?.id]);
 
@@ -69,17 +103,59 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
     scrollToBottom();
   }, [chatRoom?.messages, typingPersonas]);
   
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (inputText.trim() && chatRoom && typingPersonas.size === 0 && authReady) {
-      setFailedPersonas([]);
-      onSendMessage(chatRoom.id, {
-        authorId: USER_ID,
-        text: inputText.trim(),
-        sources: [],
-      });
-      setInputText('');
+  const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ''; // allow re-picking the same file later
+    const errors: string[] = [];
+    const accepted: File[] = [];
+    for (const f of files) {
+      if (!f.type.startsWith('image/')) { errors.push(`${f.name}: only images are supported`); continue; }
+      if (f.size > MAX_FILE_BYTES) { errors.push(`${f.name}: over 10MB`); continue; }
+      accepted.push(f);
     }
+    setPendingFiles(prev => {
+      const room = MAX_ATTACHMENTS - prev.length;
+      if (accepted.length > room) errors.push(`Up to ${MAX_ATTACHMENTS} images per message`);
+      return [...prev, ...accepted.slice(0, Math.max(0, room))];
+    });
+    setAttachError(errors.length ? errors.join(' · ') : null);
+  };
+
+  const removePendingFile = (index: number) => {
+    setPendingFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const text = inputText.trim();
+    if (!chatRoom || typingPersonas.size !== 0 || !authReady || uploading) return;
+    if (!text && pendingFiles.length === 0) return;
+
+    setFailedPersonas([]);
+
+    let attachments: Attachment[] = [];
+    if (pendingFiles.length > 0) {
+      setUploading(true);
+      try {
+        attachments = await Promise.all(pendingFiles.map(f => onUploadFile(f)));
+      } catch (error) {
+        console.error('Attachment upload failed:', error);
+        setAttachError('Upload failed — please try again.');
+        setUploading(false);
+        return;
+      }
+      setUploading(false);
+    }
+
+    onSendMessage(chatRoom.id, {
+      authorId: USER_ID,
+      text,
+      sources: [],
+      attachments: attachments.length ? attachments : undefined,
+    });
+    setInputText('');
+    setPendingFiles([]);
+    setAttachError(null);
   };
 
   const triggerAIResponses = useCallback(async (lastMessage: Message) => {
@@ -96,6 +172,11 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
     // personas in this round react to earlier ones — a real group conversation
     // rather than N monologues all answering the same stale snapshot.
     const runningHistory = [...chatRoom.messages];
+
+    // Image attachments on the user's message become vision input for the round.
+    const triggerImages = (lastMessage.attachments ?? [])
+        .filter(a => a.mimeType.startsWith('image/') && !!a.url)
+        .map(a => ({ url: a.url as string, mimeType: a.mimeType }));
 
     // Skip personas that were deleted while still referenced by this chat.
     const personasInChat = chatRoom.personaIds
@@ -124,7 +205,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
 
         setTypingPersonas(prev => new Set(prev).add(persona.id));
         try {
-            const response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, signal);
+            const response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, triggerImages, signal);
             if (signal.aborted) return;
             // Make this reply visible to the next persona in the round. Convex's
             // live query will reconcile the real message; this is only the local
@@ -231,25 +312,52 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
       </main>
 
       <footer className="p-3 bg-panel-header-bg">
+        {pendingFiles.length > 0 && (
+          <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
+            {pendingFiles.map((file, i) => (
+              <PendingThumb key={`${file.name}-${i}`} file={file} onRemove={() => removePendingFile(i)} />
+            ))}
+          </div>
+        )}
+        {attachError && (
+          <p className="text-xs text-red-400 mb-2">{attachError}</p>
+        )}
         <form onSubmit={handleSendMessage} className="flex items-center gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleFilesSelected}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isGenerating || !authReady || uploading || pendingFiles.length >= MAX_ATTACHMENTS}
+            title="Attach images"
+            className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <PaperClipIcon className="h-6 w-6" />
+          </button>
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder={!authReady ? "Connecting..." : isGenerating ? "AI is responding..." : "Type a message..."}
-            disabled={isGenerating || !authReady}
+            placeholder={!authReady ? "Connecting..." : isGenerating ? "AI is responding..." : uploading ? "Uploading..." : "Type a message..."}
+            disabled={isGenerating || !authReady || uploading}
             className="flex-1 bg-item-active-bg rounded-lg p-3 text-text-primary outline-none focus:ring-2 focus:ring-accent-green disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <button
             type="submit"
-            disabled={!inputText.trim() || isGenerating || !authReady}
+            disabled={(!inputText.trim() && pendingFiles.length === 0) || isGenerating || !authReady || uploading}
             className={`rounded-full p-3 text-white transition flex-shrink-0 ${
-              isGenerating
+              isGenerating || uploading
                 ? 'bg-gray-500 cursor-not-allowed'
                 : 'bg-accent-green hover:bg-opacity-90 disabled:bg-gray-500 disabled:cursor-not-allowed'
             }`}
           >
-            {isGenerating ? (
+            {isGenerating || uploading ? (
               <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>

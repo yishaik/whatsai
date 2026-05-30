@@ -94,6 +94,9 @@ export const generatePersonaResponse = async (
   history: Message[],
   allPersonasInChat: Persona[],
   personasMap: { [id: string]: Persona },
+  // Image attachments on the triggering user message, passed to the model as
+  // vision input. The server fetches the bytes from these URLs.
+  images: { url: string; mimeType: string }[] = [],
   signal?: AbortSignal
 ): Promise<PersonaResponsePayload> => {
   // Strip avatar fields to reduce payload size (avoids 413 errors)
@@ -108,6 +111,7 @@ export const generatePersonaResponse = async (
     history,
     allPersonasInChat: allPersonasInChat.map(stripAvatar),
     personasMap: strippedPersonasMap,
+    images,
   }, signal);
 };
 

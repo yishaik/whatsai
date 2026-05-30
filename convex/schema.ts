@@ -48,6 +48,18 @@ export default defineSchema({
         })
       ),
     ),
+    // User-uploaded files attached to the message (bounded — capped client-side).
+    // Bytes live in file storage; only a reference is stored here.
+    attachments: v.optional(
+      v.array(
+        v.object({
+          storageId: v.id("_storage"),
+          name: v.string(),
+          mimeType: v.string(),
+          size: v.number(),
+        }),
+      ),
+    ),
   }).index("by_chat_room", ["chatRoomId"]),
 
   // Atomic claims so only one client generates a given persona's reply to a
