@@ -15,7 +15,7 @@ interface ChatViewProps {
   chatRoom: ChatRoom | null;
   personasMap: { [id: string]: Persona };
   authReady: boolean;
-  onSendMessage: (chatId: string, message: Omit<Message, 'id' | 'timestamp'>) => void;
+  onSendMessage: (chatId: string, message: Omit<Message, 'id' | 'timestamp'>) => void | Promise<void>;
   onUploadFile: (file: File) => Promise<Attachment>;
   onClaimResponse: (chatId: string, triggerMessageId: string, personaId: string) => Promise<boolean>;
   onEditChat?: () => void;
@@ -140,19 +140,25 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
         attachments = await Promise.all(pendingFiles.map(f => onUploadFile(f)));
       } catch (error) {
         console.error('Attachment upload failed:', error);
-        setAttachError('Upload failed — please try again.');
+        setAttachError(`Upload failed: ${error instanceof Error ? error.message : String(error)}`);
         setUploading(false);
         return;
       }
       setUploading(false);
     }
 
-    onSendMessage(chatRoom.id, {
-      authorId: USER_ID,
-      text,
-      sources: [],
-      attachments: attachments.length ? attachments : undefined,
-    });
+    try {
+      await onSendMessage(chatRoom.id, {
+        authorId: USER_ID,
+        text,
+        sources: [],
+        attachments: attachments.length ? attachments : undefined,
+      });
+    } catch (error) {
+      console.error('Sending message failed:', error);
+      setAttachError(`Send failed: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
     setInputText('');
     setPendingFiles([]);
     setAttachError(null);
