@@ -1,8 +1,9 @@
 import { GoogleGenAI, Modality } from '@google/genai';
 
-// The Gemini Live model used for real-time voice. If this id isn't available on
-// the API key's tier, swap it here — the client uses whatever this returns.
-const LIVE_MODEL = 'gemini-2.0-flash-live-001';
+// The Gemini Live model for real-time voice. This native-audio model is the one
+// available on our key's tier for the constrained ephemeral-token connection
+// (verified: opens + returns audio). The client uses whatever this returns.
+const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-09-2025';
 
 const getApiKey = (): string => {
   const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
@@ -30,10 +31,7 @@ export default async function handler(req: any, res: any) {
       typeof body.systemInstruction === 'string' ? body.systemInstruction : undefined;
     const voiceName: string | undefined =
       typeof body.voiceName === 'string' ? body.voiceName : undefined;
-    // Allow overriding the live model (used to find the one available on this
-    // key's tier); defaults to LIVE_MODEL.
-    const model: string =
-      typeof body.model === 'string' && body.model ? body.model : LIVE_MODEL;
+    const model = LIVE_MODEL;
 
     const ai = new GoogleGenAI({
       apiKey: getApiKey(),
