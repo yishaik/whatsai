@@ -1,7 +1,7 @@
 import React from 'react';
 import { Message, Persona, Source, Attachment } from '../types';
 import Avatar from './Avatar';
-import { LinkIcon, PaperClipIcon } from './icons';
+import { LinkIcon, PaperClipIcon, SpeakerWaveIcon } from './icons';
 import LinkPreviewCard from './LinkPreviewCard';
 
 // Up to 3 unique http(s) URLs in a message (mirrors convex/links.ts extractUrls).
@@ -16,6 +16,9 @@ interface MessageBubbleProps {
   persona: Persona | null;
   isOwnMessage: boolean;
   onSourceClick: (url: string) => void;
+  canSpeak?: boolean;
+  isSpeaking?: boolean;
+  onToggleSpeak?: () => void;
 }
 
 const getDomain = (url: string) => {
@@ -70,7 +73,7 @@ const AttachmentView: React.FC<{ attachment: Attachment }> = ({ attachment }) =>
   );
 };
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMessage, onSourceClick }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMessage, onSourceClick, canSpeak, isSpeaking, onToggleSpeak }) => {
   const alignment = isOwnMessage ? 'justify-end' : 'justify-start';
   const bubbleColor = isOwnMessage ? 'bg-message-out' : 'bg-message-in';
   const authorName = isOwnMessage ? 'You' : persona?.name || 'Unknown';
@@ -87,9 +90,18 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
       )}
       <div className={`flex flex-col max-w-[85%] sm:max-w-sm md:max-w-md lg:max-w-2xl`}>
         {!isOwnMessage && (
-            <span className={`text-sm font-bold mb-1 ml-3 ${authorColor}`}>
-                {authorName}
-            </span>
+            <div className="flex items-center gap-1.5 mb-1 ml-3">
+                <span className={`text-sm font-bold ${authorColor}`}>{authorName}</span>
+                {canSpeak && onToggleSpeak && message.text && (
+                    <button
+                        onClick={onToggleSpeak}
+                        title={isSpeaking ? 'Stop' : 'Read aloud'}
+                        className={`p-0.5 rounded-full transition-colors ${isSpeaking ? 'text-accent-green animate-pulse' : 'text-icon-default hover:text-icon-strong'}`}
+                    >
+                        <SpeakerWaveIcon className="h-4 w-4" />
+                    </button>
+                )}
+            </div>
         )}
         {attachments.length > 0 && (
           <div className={`grid gap-1 mb-1 ${attachments.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
