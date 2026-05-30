@@ -11,6 +11,7 @@ interface ChatViewProps {
   chatRoom: ChatRoom | null;
   personasMap: { [id: string]: Persona };
   onSendMessage: (chatId: string, message: Omit<Message, 'id' | 'timestamp'>) => void;
+  onClaimResponse: (chatId: string, triggerMessageId: string, personaId: string) => Promise<boolean>;
   onEditChat?: () => void;
   onDeleteChat?: () => void;
 }
@@ -26,26 +27,38 @@ const TypingIndicator: React.FC<{ persona: Persona }> = ({ persona }) => (
     </div>
 );
 
-const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessage, onEditChat, onDeleteChat }) => {
+const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessage, onClaimResponse, onEditChat, onDeleteChat }) => {
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
   const [failedPersonas, setFailedPersonas] = useState<string[]>([]);
   const [viewingSourceUrl, setViewingSourceUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
+
   // Track which user messages have already triggered AI responses
   const respondedToRef = useRef<Set<string>>(new Set());
   // Track the previous chatRoom ID to detect chat switches
   const prevChatRoomIdRef = useRef<string | null>(null);
+  // Aborts in-flight response generation when the chat changes or unmounts
+  const generationAbortRef = useRef<AbortController | null>(null);
 
-  // Reset responded tracking when switching chats
+  // Reset responded tracking and cancel in-flight generation when switching chats
   useEffect(() => {
     if (chatRoom?.id !== prevChatRoomIdRef.current) {
+      generationAbortRef.current?.abort();
+      generationAbortRef.current = null;
       respondedToRef.current = new Set();
       prevChatRoomIdRef.current = chatRoom?.id || null;
+      setTypingPersonas(new Set());
       setFailedPersonas([]);
     }
   }, [chatRoom?.id]);
+
+  // Cancel any in-flight generation on unmount
+  useEffect(() => {
+    return () => {
+      generationAbortRef.current?.abort();
+    };
+  }, []);
   
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -70,27 +83,54 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
 
   const triggerAIResponses = useCallback(async (lastMessage: Message) => {
     if (!chatRoom || lastMessage.authorId !== USER_ID) return;
-    
-    // Prevent duplicate responses to the same message
+
+    // Prevent this client from re-triggering for the same message
     if (respondedToRef.current.has(lastMessage.id)) return;
     respondedToRef.current.add(lastMessage.id);
+
+    // Snapshot chat context; it must not change mid-loop if the user navigates.
+    const chatId = chatRoom.id;
+    const chatTopic = chatRoom.topic;
+    const historySnapshot = [...chatRoom.messages];
 
     // Skip personas that were deleted while still referenced by this chat.
     const personasInChat = chatRoom.personaIds
         .map(id => personasMap[id])
         .filter((p): p is Persona => Boolean(p));
 
+    const controller = new AbortController();
+    generationAbortRef.current = controller;
+    const { signal } = controller;
+
     for (const persona of personasInChat) {
+        if (signal.aborted) return;
+
+        // Atomically claim this reply so that across all clients viewing this
+        // shared chat, only one generates it. Skip if another client owns it.
+        let won = false;
+        try {
+            won = await onClaimResponse(chatId, lastMessage.id, persona.id);
+        } catch (error) {
+            // Claim infra error: skip rather than risk a duplicate. The other
+            // client (if any) still handles it; otherwise the user can re-send.
+            console.error("Failed to claim response slot for", persona.name, error);
+        }
+        if (signal.aborted) return;
+        if (!won) continue;
+
         setTypingPersonas(prev => new Set(prev).add(persona.id));
         try {
             await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + 500));
-            const response = await generatePersonaResponse(persona, chatRoom.topic, [...chatRoom.messages], personasInChat, personasMap);
-            onSendMessage(chatRoom.id, {
+            if (signal.aborted) return;
+            const response = await generatePersonaResponse(persona, chatTopic, historySnapshot, personasInChat, personasMap, signal);
+            if (signal.aborted) return;
+            onSendMessage(chatId, {
                 authorId: persona.id,
                 text: response.text,
                 sources: response.sources,
             });
         } catch (error) {
+            if (signal.aborted) return;
             console.error("Failed to get AI response for", persona.name, error);
             setFailedPersonas(prev => [...prev, persona.name]);
         } finally {
@@ -101,7 +141,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
             });
         }
     }
-  }, [chatRoom, personasMap, onSendMessage]);
+  }, [chatRoom, personasMap, onSendMessage, onClaimResponse]);
   
   useEffect(() => {
     if (chatRoom && chatRoom.messages.length > 0) {

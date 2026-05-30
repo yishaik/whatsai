@@ -35,4 +35,16 @@ export default defineSchema({
       ),
     ),
   }).index("by_chat_room", ["chatRoomId"]),
+
+  // Atomic claims so only one client generates a given persona's reply to a
+  // given user message (chats are shared/public — multiple clients observe the
+  // same message and would otherwise each generate a duplicate response).
+  responseClaims: defineTable({
+    chatRoomId: v.id("chatRooms"),
+    triggerMessageId: v.string(), // the user message that triggered responses
+    personaId: v.string(),
+    claimedAt: v.number(),
+  })
+    .index("by_trigger_persona", ["triggerMessageId", "personaId"])
+    .index("by_chat_room", ["chatRoomId"]),
 });
