@@ -1,4 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useConvexAuth } from 'convex/react';
+import { useAuthActions } from '@convex-dev/auth/react';
 import { useConvexData, Persona, ChatRoom } from './hooks/useConvexData';
 import { useChatMessages } from './hooks/useChatMessages';
 import ChatList from './components/ChatList';
@@ -29,6 +31,16 @@ const App: React.FC = () => {
   } = useConvexData();
 
   const activeChatMessages = useChatMessages(activeChatId);
+
+  // Every visitor gets a silent anonymous session so the app stays zero-friction
+  // (writes require an identity). Signing in with Google later upgrades it.
+  const { isLoading: authLoading, isAuthenticated } = useConvexAuth();
+  const { signIn } = useAuthActions();
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      void signIn('anonymous');
+    }
+  }, [authLoading, isAuthenticated, signIn]);
 
   const [isPersonaManagerOpen, setIsPersonaManagerOpen] = useState(false);
   const [isCreateChatOpen, setIsCreateChatOpen] = useState(false);
@@ -89,9 +101,13 @@ const App: React.FC = () => {
     await deletePersonaFromDb(id);
   };
 
-  const createChat = async (topic: string, personaIds: string[]) => {
+  const createChat = async (
+    topic: string,
+    personaIds: string[],
+    visibility: 'public' | 'private' = 'public',
+  ) => {
     // Create chat immediately without avatar for instant feedback
-    const chatId = await addChatRoomToDb(topic, personaIds, undefined);
+    const chatId = await addChatRoomToDb(topic, personaIds, undefined, visibility);
     setActiveChatId(chatId);
 
     // Generate avatar in background
@@ -176,6 +192,7 @@ const App: React.FC = () => {
         <ChatView
           chatRoom={activeChat}
           personasMap={personasMap}
+          authReady={isAuthenticated}
           onSendMessage={addMessageToChat}
           onClaimResponse={claimResponseSlot}
           onEditChat={() => activeChat && setEditingChatRoom(activeChat)}

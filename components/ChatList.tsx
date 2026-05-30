@@ -1,8 +1,9 @@
 
 import React from 'react';
 import { ChatRoom, Message } from '../types';
-import { PlusIcon, UsersIcon, TrashIcon } from './icons';
+import { PlusIcon, UsersIcon, TrashIcon, LockClosedIcon } from './icons';
 import Avatar from './Avatar';
+import AuthControl from './AuthControl';
 
 interface ChatListProps {
   chatRooms: ChatRoom[];
@@ -39,7 +40,12 @@ const ChatListItem: React.FC<{
       <Avatar src={chat.avatar} seed={chat.topic} size={48} />
       <div className="flex-1 overflow-hidden">
         <div className="flex justify-between items-center">
-          <p className="text-text-primary font-semibold truncate">{chat.topic}</p>
+          <p className="text-text-primary font-semibold truncate flex items-center gap-1.5">
+            {chat.visibility === 'private' && (
+              <LockClosedIcon className="h-3.5 w-3.5 text-text-secondary flex-shrink-0" />
+            )}
+            <span className="truncate">{chat.topic}</span>
+          </p>
           {lastMessage && (
             <p className="text-xs text-text-secondary flex-shrink-0">
               {new Date(lastMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -128,6 +134,7 @@ const ChatList: React.FC<ChatListProps> = ({
             ))
           )}
         </div>
+        <AuthControl />
       </div>
     </>
   );

@@ -1,7 +1,11 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { authTables } from "@convex-dev/auth/server";
 
 export default defineSchema({
+  // Convex Auth tables (users, authAccounts, authSessions, ...).
+  ...authTables,
+
   // פרסונות (דמויות AI)
   personas: defineTable({
     name: v.string(),
@@ -22,7 +26,13 @@ export default defineSchema({
     personaIds: v.array(v.id("personas")),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }),
+    // Owner of the room. Optional for back-compat: legacy rows predate auth and
+    // have no owner — they are treated as public, unowned rooms.
+    ownerId: v.optional(v.id("users")),
+    // Absent visibility is treated as "public" so existing rooms keep working
+    // with no data migration.
+    visibility: v.optional(v.union(v.literal("public"), v.literal("private"))),
+  }).index("by_owner", ["ownerId"]),
 
   // הודעות
   messages: defineTable({

@@ -26,6 +26,7 @@ export interface ChatRoom {
   avatar?: string;
   personaIds: string[];
   messages: Message[];
+  visibility?: "public" | "private";
 }
 
 // Hook to manage all data with Convex
@@ -67,6 +68,7 @@ export function useConvexData() {
       topic: cr.topic,
       avatar: cr.avatar,
       personaIds: cr.personaIds,
+      visibility: cr.visibility ?? "public",
       messages: [], // Messages loaded separately
     }));
   }, [convexChatRooms]);
@@ -116,11 +118,17 @@ export function useConvexData() {
   };
 
   // Chat room functions
-  const addChatRoom = async (topic: string, personaIds: string[], avatar?: string) => {
+  const addChatRoom = async (
+    topic: string,
+    personaIds: string[],
+    avatar?: string,
+    visibility?: "public" | "private",
+  ) => {
     const id = await createChatRoomMutation({
       topic,
       avatar,
       personaIds: personaIds as Id<"personas">[],
+      visibility,
     });
     return id;
   };

@@ -25,4 +25,5 @@ export interface ChatRoom {
   avatar?: string; // base64 data URL of the chat avatar
   personaIds: string[];
   messages: Message[];
+  visibility?: 'public' | 'private';
 }
