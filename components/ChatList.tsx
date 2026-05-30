@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { ChatRoom, Message } from '../types';
+import { ChatRoom } from '../types';
 import { PlusIcon, UsersIcon, TrashIcon, LockClosedIcon } from './icons';
 import Avatar from './Avatar';
 import AuthControl from './AuthControl';
@@ -27,7 +27,6 @@ const ChatListItem: React.FC<{
   onClick: () => void;
   onDelete: () => void;
 }> = ({ chat, isActive, onClick, onDelete }) => {
-  const lastMessage: Message | undefined = chat.messages[chat.messages.length - 1];
   const [showDelete, setShowDelete] = React.useState(false);
 
   return (
@@ -46,14 +45,14 @@ const ChatListItem: React.FC<{
             )}
             <span className="truncate">{chat.topic}</span>
           </p>
-          {lastMessage && (
+          {chat.lastMessageTime && (
             <p className="text-xs text-text-secondary flex-shrink-0">
-              {new Date(lastMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {new Date(chat.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </p>
           )}
         </div>
         <p className="text-sm text-text-secondary truncate">
-          {lastMessage ? truncate(lastMessage.text, 30) : 'No messages yet'}
+          {chat.lastMessageText ? truncate(chat.lastMessageText, 30) : 'No messages yet'}
         </p>
       </div>
       {showDelete && (
