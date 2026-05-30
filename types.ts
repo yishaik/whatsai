@@ -35,4 +35,6 @@ export interface ChatRoom {
   personaIds: string[];
   messages: Message[];
   visibility?: 'public' | 'private';
+  lastMessageText?: string;
+  lastMessageTime?: number;
 }

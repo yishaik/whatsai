@@ -178,10 +178,23 @@ export const getAllChatRooms = query({
       .take(CHAT_ROOM_LIMIT);
     const visible = rooms.filter((r) => canRead(r, userId));
     return await Promise.all(
-      visible.map(async (r) => ({
-        ...r,
-        avatar: await resolveAvatar(ctx.storage, r),
-      })),
+      visible.map(async (r) => {
+        // Latest message for the sidebar preview (indexed .first(), cheap).
+        const latest = await ctx.db
+          .query("messages")
+          .withIndex("by_chat_room", (q) => q.eq("chatRoomId", r._id))
+          .order("desc")
+          .first();
+        const lastMessageText = latest
+          ? latest.text.trim() || (latest.attachments?.length ? "📷 Image" : "")
+          : undefined;
+        return {
+          ...r,
+          avatar: await resolveAvatar(ctx.storage, r),
+          lastMessageText,
+          lastMessageTime: latest?.timestamp,
+        };
+      }),
     );
   },
 });
