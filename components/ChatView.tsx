@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { ChatRoom, Persona, Message, Attachment } from '../types';
 import { USER_ID } from '../constants';
 import MessageBubble from './MessageBubble';
-import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon, XMarkIcon } from './icons';
+import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon, XMarkIcon, PhoneIcon } from './icons';
 import Avatar from './Avatar';
 import SourceViewerModal from './SourceViewerModal';
+// Lazy so @google/genai (the Live SDK) only loads when a call actually starts.
+const VoiceCallOverlay = lazy(() => import('./VoiceCallOverlay'));
 import { generatePersonaResponse, streamPersonaResponse } from '../services/geminiService';
 import { speak, stopSpeaking, ttsSupported } from '../services/speech';
 
@@ -78,6 +80,8 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [failedPersonas, setFailedPersonas] = useState<string[]>([]);
+  const [callPersona, setCallPersona] = useState<Persona | null>(null);
+  const [showCallPicker, setShowCallPicker] = useState(false);
   const canSpeak = ttsSupported();
   const [viewingSourceUrl, setViewingSourceUrl] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -107,6 +111,8 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
       setAttachError(null);
       stopSpeaking();
       setSpeakingId(null);
+      setCallPersona(null);
+      setShowCallPicker(false);
     }
   }, [chatRoom?.id]);
 
@@ -333,9 +339,42 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
             {['You', ...chatRoom.personaIds.map(id => personasMap[id]?.name || 'Unknown')].join(', ')}
           </p>
         </div>
+        {chatRoom.personaIds.length > 0 && (
+          <div className="relative flex-shrink-0">
+            <button
+              onClick={() => setShowCallPicker(v => !v)}
+              className="text-icon-default hover:text-accent-green p-2 rounded-full hover:bg-item-hover-bg"
+              title="Voice call a persona"
+            >
+              <PhoneIcon className="h-5 w-5" />
+            </button>
+            {showCallPicker && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowCallPicker(false)} />
+                <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-panel-bg border border-item-hover-bg rounded-lg shadow-xl py-1">
+                  <p className="px-3 py-1 text-xs text-text-secondary">Call a persona</p>
+                  {chatRoom.personaIds
+                    .map(id => personasMap[id])
+                    .filter((p): p is Persona => Boolean(p))
+                    .map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => { setCallPersona(p); setShowCallPicker(false); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-item-hover-bg text-left"
+                      >
+                        <Avatar src={p.avatar} name={p.name} size={28} />
+                        <span className="text-sm text-text-primary truncate">{p.name}</span>
+                      </button>
+                    ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {onEditChat && (
           <div className="flex items-center gap-1 flex-shrink-0">
-            <button 
+            <button
               onClick={onEditChat}
               className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg"
               title="Edit chat"
@@ -442,11 +481,21 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
         </form>
       </footer>
       
-      <SourceViewerModal 
-        isOpen={!!viewingSourceUrl} 
+      <SourceViewerModal
+        isOpen={!!viewingSourceUrl}
         url={viewingSourceUrl}
-        onClose={() => setViewingSourceUrl(null)} 
+        onClose={() => setViewingSourceUrl(null)}
       />
+
+      {callPersona && (
+        <Suspense fallback={null}>
+          <VoiceCallOverlay
+            persona={callPersona}
+            chatTopic={chatRoom.topic}
+            onClose={() => setCallPersona(null)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };
