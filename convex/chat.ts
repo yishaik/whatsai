@@ -116,6 +116,16 @@ export const deleteChatRoom = mutation({
       await ctx.db.delete(message._id);
     }
 
+    // Delete any response claims for this chat room
+    const claims = await ctx.db
+      .query("responseClaims")
+      .withIndex("by_chat_room", (q) => q.eq("chatRoomId", args.id))
+      .collect();
+
+    for (const claim of claims) {
+      await ctx.db.delete(claim._id);
+    }
+
     // Delete the chat room
     await ctx.db.delete(args.id);
   },
@@ -172,5 +182,51 @@ export const deleteMessage = mutation({
   args: { id: v.id("messages") },
   handler: async (ctx, args) => {
     await ctx.db.delete(args.id);
+  },
+});
+
+// ==================== RESPONSE CLAIMS ====================
+
+// How long a claim is honored before it can be re-claimed. Covers the case
+// where the client that won a claim closed/crashed before posting its reply.
+const CLAIM_STALE_MS = 90_000;
+
+// Atomically claim the right to generate one persona's reply to one user
+// message. Returns true if this caller won the claim and should generate the
+// response; false if another client already owns it. Convex mutations run with
+// serializable isolation, so concurrent callers cannot both win.
+export const claimResponseSlot = mutation({
+  args: {
+    chatRoomId: v.id("chatRooms"),
+    triggerMessageId: v.string(),
+    personaId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    const existing = await ctx.db
+      .query("responseClaims")
+      .withIndex("by_trigger_persona", (q) =>
+        q.eq("triggerMessageId", args.triggerMessageId).eq("personaId", args.personaId),
+      )
+      .first();
+
+    if (existing) {
+      // Fresh claim owned by another client — caller should skip.
+      if (now - existing.claimedAt < CLAIM_STALE_MS) {
+        return false;
+      }
+      // Stale claim (likely a dropped client) — take it over.
+      await ctx.db.patch(existing._id, { claimedAt: now });
+      return true;
+    }
+
+    await ctx.db.insert("responseClaims", {
+      chatRoomId: args.chatRoomId,
+      triggerMessageId: args.triggerMessageId,
+      personaId: args.personaId,
+      claimedAt: now,
+    });
+    return true;
   },
 });

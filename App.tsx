@@ -24,6 +24,7 @@ const App: React.FC = () => {
     updateChatRoom: updateChatRoomInDb,
     deleteChatRoom: deleteChatRoomFromDb,
     addMessage: addMessageToDb,
+    claimResponseSlot,
   } = useConvexData();
 
   const activeChatMessages = useChatMessages(activeChatId);
@@ -163,6 +164,7 @@ const App: React.FC = () => {
           chatRoom={activeChat}
           personasMap={personasMap}
           onSendMessage={addMessageToChat}
+          onClaimResponse={claimResponseSlot}
           onEditChat={() => activeChat && setEditingChatRoom(activeChat)}
           onDeleteChat={activeChat ? () => deleteChatRoom(activeChat.id) : undefined}
         />

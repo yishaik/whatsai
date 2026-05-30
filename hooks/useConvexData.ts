@@ -47,6 +47,7 @@ export function useConvexData() {
 
   const addMessageMutation = useMutation(api.chat.addMessage);
   const deleteMessageMutation = useMutation(api.chat.deleteMessage);
+  const claimResponseSlotMutation = useMutation(api.chat.claimResponseSlot);
 
   // Convert Convex data to app format
   const personas: Persona[] = useMemo(() => {
@@ -149,6 +150,20 @@ export function useConvexData() {
     return id;
   };
 
+  // Atomically claim the right to generate a persona's reply to a user message.
+  // Returns true if this client should generate the response.
+  const claimResponseSlot = async (
+    chatRoomId: string,
+    triggerMessageId: string,
+    personaId: string,
+  ): Promise<boolean> => {
+    return await claimResponseSlotMutation({
+      chatRoomId: chatRoomId as Id<"chatRooms">,
+      triggerMessageId,
+      personaId,
+    });
+  };
+
   return {
     // Data
     personas,
@@ -169,6 +184,7 @@ export function useConvexData() {
 
     // Message functions
     addMessage,
+    claimResponseSlot,
     deleteMessage: (id: string) => deleteMessageMutation({ id: id as Id<"messages"> }),
   };
 }

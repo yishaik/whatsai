@@ -19,12 +19,18 @@ const stripAvatar = (persona: Persona): Omit<Persona, 'avatar'> => {
 const REQUEST_TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 1;
 
-const postJson = async <T>(url: string, body: unknown): Promise<T> => {
+const postJson = async <T>(url: string, body: unknown, externalSignal?: AbortSignal): Promise<T> => {
   let lastError: Error = new Error('Request failed.');
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (externalSignal?.aborted) {
+      throw new DOMException('The request was aborted.', 'AbortError');
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const onExternalAbort = () => controller.abort();
+    externalSignal?.addEventListener('abort', onExternalAbort);
 
     try {
       const response = await fetch(url, {
@@ -55,6 +61,11 @@ const postJson = async <T>(url: string, body: unknown): Promise<T> => {
 
       return payload as T;
     } catch (error) {
+      // A caller-initiated abort (e.g. chat switch) must propagate, not retry.
+      if (externalSignal?.aborted) {
+        throw new DOMException('The request was aborted.', 'AbortError');
+      }
+
       // AbortError (timeout) and TypeError (network failure) are transient — retry.
       const isTransient =
         error instanceof DOMException && error.name === 'AbortError' || error instanceof TypeError;
@@ -70,6 +81,7 @@ const postJson = async <T>(url: string, body: unknown): Promise<T> => {
       throw error instanceof Error ? error : new Error(String(error));
     } finally {
       clearTimeout(timeout);
+      externalSignal?.removeEventListener('abort', onExternalAbort);
     }
   }
 
@@ -81,7 +93,8 @@ export const generatePersonaResponse = async (
   chatTopic: string,
   history: Message[],
   allPersonasInChat: Persona[],
-  personasMap: { [id: string]: Persona }
+  personasMap: { [id: string]: Persona },
+  signal?: AbortSignal
 ): Promise<PersonaResponsePayload> => {
   // Strip avatar fields to reduce payload size (avoids 413 errors)
   const strippedPersonasMap: { [id: string]: Omit<Persona, 'avatar'> } = {};
@@ -95,7 +108,7 @@ export const generatePersonaResponse = async (
     history,
     allPersonasInChat: allPersonasInChat.map(stripAvatar),
     personasMap: strippedPersonasMap,
-  });
+  }, signal);
 };
 
 export const generateAvatar = async (name: string, prompt: string): Promise<string> => {
