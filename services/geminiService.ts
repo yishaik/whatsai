@@ -15,28 +15,65 @@ const stripAvatar = (persona: Persona): Omit<Persona, 'avatar'> => {
   return rest;
 };
 
+// Matches the Vercel function `maxDuration` in vercel.json.
+const REQUEST_TIMEOUT_MS = 60_000;
+const MAX_RETRIES = 1;
+
 const postJson = async <T>(url: string, body: unknown): Promise<T> => {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
+  let lastError: Error = new Error('Request failed.');
 
-  let payload: any = null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  try {
-    payload = await response.json();
-  } catch (error) {
-    payload = null;
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      let payload: any = null;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
+
+      if (!response.ok) {
+        const error = new Error(payload?.error || `Request failed with status ${response.status}`);
+        // Retry only transient server errors; surface 4xx immediately.
+        if (response.status >= 500 && attempt < MAX_RETRIES) {
+          lastError = error;
+          continue;
+        }
+        throw error;
+      }
+
+      return payload as T;
+    } catch (error) {
+      // AbortError (timeout) and TypeError (network failure) are transient — retry.
+      const isTransient =
+        error instanceof DOMException && error.name === 'AbortError' || error instanceof TypeError;
+
+      if (isTransient && attempt < MAX_RETRIES) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        continue;
+      }
+
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new Error('The request timed out. Please try again.');
+      }
+      throw error instanceof Error ? error : new Error(String(error));
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
-  if (!response.ok) {
-    throw new Error(payload?.error || `Request failed with status ${response.status}`);
-  }
-
-  return payload as T;
+  throw lastError;
 };
 
 export const generatePersonaResponse = async (

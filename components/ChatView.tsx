@@ -29,6 +29,7 @@ const TypingIndicator: React.FC<{ persona: Persona }> = ({ persona }) => (
 const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessage, onEditChat, onDeleteChat }) => {
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
+  const [failedPersonas, setFailedPersonas] = useState<string[]>([]);
   const [viewingSourceUrl, setViewingSourceUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
@@ -42,6 +43,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
     if (chatRoom?.id !== prevChatRoomIdRef.current) {
       respondedToRef.current = new Set();
       prevChatRoomIdRef.current = chatRoom?.id || null;
+      setFailedPersonas([]);
     }
   }, [chatRoom?.id]);
   
@@ -56,6 +58,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (inputText.trim() && chatRoom && typingPersonas.size === 0) {
+      setFailedPersonas([]);
       onSendMessage(chatRoom.id, {
         authorId: USER_ID,
         text: inputText.trim(),
@@ -72,8 +75,11 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
     if (respondedToRef.current.has(lastMessage.id)) return;
     respondedToRef.current.add(lastMessage.id);
 
-    const personasInChat = chatRoom.personaIds.map(id => personasMap[id]);
-    
+    // Skip personas that were deleted while still referenced by this chat.
+    const personasInChat = chatRoom.personaIds
+        .map(id => personasMap[id])
+        .filter((p): p is Persona => Boolean(p));
+
     for (const persona of personasInChat) {
         setTypingPersonas(prev => new Set(prev).add(persona.id));
         try {
@@ -86,6 +92,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
             });
         } catch (error) {
             console.error("Failed to get AI response for", persona.name, error);
+            setFailedPersonas(prev => [...prev, persona.name]);
         } finally {
             setTypingPersonas(prev => {
                 const newSet = new Set(prev);
@@ -162,6 +169,11 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, onSendMessag
         ))}
         {Array.from(typingPersonas).map(id => (
             personasMap[id] ? <TypingIndicator key={id} persona={personasMap[id]} /> : null
+        ))}
+        {failedPersonas.map((name, i) => (
+            <div key={`fail-${i}`} className="text-center text-xs text-red-400 bg-red-500/10 rounded-lg py-1.5 px-3 mx-auto max-w-md">
+                ⚠️ {name} couldn't respond. Please try again.
+            </div>
         ))}
         <div ref={messagesEndRef} />
       </main>

@@ -106,8 +106,8 @@ Do not prefix your response with your name (e.g., don't write "${personaWithoutA
     const config: Record<string, any> = {
       systemInstruction,
       temperature: 0.9,
-      topP: 1,
-      topK: 1,
+      topP: 0.95,
+      topK: 40,
     };
 
     if (personaWithoutAvatar.canSearch) {
