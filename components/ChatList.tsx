@@ -91,8 +91,8 @@ const ChatList: React.FC<ChatListProps> = ({
 
       <div
         className={`
-          fixed md:relative z-40 md:z-auto
-          h-full
+          fixed top-0 left-0 z-40 h-[100dvh]
+          md:relative md:top-auto md:left-auto md:z-auto md:h-full
           w-[85%] max-w-sm md:w-full md:max-w-none md:w-1/3 lg:w-1/4
           bg-panel-bg border-r border-item-hover-bg flex flex-col
           transition-transform duration-300 ease-in-out
