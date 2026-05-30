@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { ChatRoom, Message } from '../types';
-import { PlusIcon, UsersIcon, TrashIcon, Bars3Icon } from './icons';
+import { PlusIcon, UsersIcon, TrashIcon } from './icons';
 import Avatar from './Avatar';
 
 interface ChatListProps {
