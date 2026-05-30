@@ -158,7 +158,7 @@ const App: React.FC = () => {
   }, [activeChatId, chatRooms, activeChatMessages]);
 
   return (
-    <div className="h-screen w-screen bg-gray-900 text-white flex flex-col antialiased">
+    <div className="h-[100dvh] w-screen bg-gray-900 text-white flex flex-col antialiased">
       {/* Public chat warning banner */}
       <div className="bg-yellow-600 text-black text-center py-1.5 px-3 text-sm z-50" dir="rtl">
         ⚠️ שימו לב: כל השיחות באתר חשופות לכל המבקרים. אל תשתפו מידע רגיש!
