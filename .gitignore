@@ -32,3 +32,8 @@ dist-ssr
 .env
 .env.*
 !env.example
+
+# Secrets (OAuth client downloads, service-account keys) — never commit
+client_secret_*.json
+**/client_secret_*.json
+*.serviceaccount.json
