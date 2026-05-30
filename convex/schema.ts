@@ -5,7 +5,10 @@ export default defineSchema({
   // פרסונות (דמויות AI)
   personas: defineTable({
     name: v.string(),
-    avatar: v.string(), // base64 compressed
+    // Legacy inline avatar (base64 data URI). New avatars live in file storage
+    // (avatarStorageId); kept optional for the small SVG default and old rows.
+    avatar: v.optional(v.string()),
+    avatarStorageId: v.optional(v.id("_storage")),
     prompt: v.string(),
     canSearch: v.boolean(),
     createdAt: v.number(),
@@ -14,7 +17,8 @@ export default defineSchema({
   // חדרי צ'אט
   chatRooms: defineTable({
     topic: v.string(),
-    avatar: v.optional(v.string()), // base64 compressed group avatar
+    avatar: v.optional(v.string()), // legacy inline base64 group avatar
+    avatarStorageId: v.optional(v.id("_storage")),
     personaIds: v.array(v.id("personas")),
     createdAt: v.number(),
     updatedAt: v.number(),

@@ -48,6 +48,7 @@ export function useConvexData() {
   const addMessageMutation = useMutation(api.chat.addMessage);
   const deleteMessageMutation = useMutation(api.chat.deleteMessage);
   const claimResponseSlotMutation = useMutation(api.chat.claimResponseSlot);
+  const generateUploadUrlMutation = useMutation(api.chat.generateUploadUrl);
 
   // Convert Convex data to app format
   const personas: Persona[] = useMemo(() => {
@@ -81,22 +82,30 @@ export function useConvexData() {
   }, [personas]);
 
   // Persona functions
-  const addPersona = async (personaData: Omit<Persona, "id" | "avatar"> & { avatar?: string }) => {
+  const addPersona = async (
+    personaData: Omit<Persona, "id" | "avatar"> & { avatar?: string; avatarStorageId?: string },
+  ) => {
     const id = await createPersonaMutation({
       name: personaData.name,
-      avatar: personaData.avatar || "",
+      // Prefer a stored image; only fall back to an inline avatar string.
+      avatar: personaData.avatarStorageId ? undefined : personaData.avatar || "",
+      avatarStorageId: personaData.avatarStorageId as Id<"_storage"> | undefined,
       prompt: personaData.prompt,
       canSearch: personaData.canSearch || false,
     });
     return id;
   };
 
-  const updatePersona = async (id: string, updates: Partial<Persona>) => {
+  const updatePersona = async (
+    id: string,
+    updates: Partial<Persona> & { avatarStorageId?: string },
+  ) => {
     const personaId = id as Id<"personas">;
     await updatePersonaMutation({
       id: personaId,
       name: updates.name,
       avatar: updates.avatar,
+      avatarStorageId: updates.avatarStorageId as Id<"_storage"> | undefined,
       prompt: updates.prompt,
       canSearch: updates.canSearch,
     });
@@ -118,13 +127,32 @@ export function useConvexData() {
 
   const updateChatRoom = async (
     id: string,
-    updates: Partial<Omit<ChatRoom, "id" | "messages">>,
+    updates: Partial<Omit<ChatRoom, "id" | "messages">> & { avatarStorageId?: string },
   ) => {
+    const { avatarStorageId, ...rest } = updates;
     await updateChatRoomMutation({
       id: id as Id<"chatRooms">,
-      ...updates,
+      ...rest,
+      avatarStorageId: avatarStorageId as Id<"_storage"> | undefined,
       personaIds: updates.personaIds as Id<"personas">[] | undefined,
     });
+  };
+
+  // Upload an avatar image (a data URI) to Convex file storage; returns the
+  // storage id to save on the persona/chat room.
+  const uploadAvatar = async (dataUri: string): Promise<string> => {
+    const uploadUrl = await generateUploadUrlMutation();
+    const blob = await (await fetch(dataUri)).blob();
+    const result = await fetch(uploadUrl, {
+      method: "POST",
+      headers: { "Content-Type": blob.type || "image/png" },
+      body: blob,
+    });
+    if (!result.ok) {
+      throw new Error(`Avatar upload failed with status ${result.status}`);
+    }
+    const { storageId } = await result.json();
+    return storageId as string;
   };
 
   const deleteChatRoom = async (id: string) => {
@@ -181,6 +209,9 @@ export function useConvexData() {
     addChatRoom,
     updateChatRoom,
     deleteChatRoom,
+
+    // Avatar storage
+    uploadAvatar,
 
     // Message functions
     addMessage,
