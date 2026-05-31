@@ -10,6 +10,7 @@ import CreateChatModal from './components/CreateChatModal';
 import EditChatModal from './components/EditChatModal';
 import SettingsModal from './components/SettingsModal';
 import RemindersModal from './components/RemindersModal';
+import SearchModal from './components/SearchModal';
 import { generateAvatar, generateGroupChatAvatar, generateImage } from './services/geminiService';
 import { DEFAULT_AVATAR } from './data/defaultPersonas';
 import { Bars3Icon } from './components/icons';
@@ -58,6 +59,7 @@ const App: React.FC = () => {
   const [isCreateChatOpen, setIsCreateChatOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isRemindersOpen, setIsRemindersOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [editingChatRoom, setEditingChatRoom] = useState<ChatRoom | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -208,6 +210,7 @@ const App: React.FC = () => {
           onNewChat={() => setIsCreateChatOpen(true)}
           onManagePersonas={() => setIsPersonaManagerOpen(true)}
           onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenSearch={() => setIsSearchOpen(true)}
           onDeleteChat={deleteChatRoom}
           isMobileOpen={isSidebarOpen}
           onMobileClose={() => setIsSidebarOpen(false)}
@@ -247,6 +250,12 @@ const App: React.FC = () => {
         defaultModel={defaultModel}
         onSetDefaultModel={setDefaultModel}
         usage={usage}
+      />
+
+      <SearchModal
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        onSelectChat={(id) => { setActiveChatId(id); setIsSidebarOpen(false); }}
       />
 
       <RemindersModal

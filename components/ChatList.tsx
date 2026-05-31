@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { ChatRoom } from '../types';
-import { PlusIcon, UsersIcon, TrashIcon, LockClosedIcon, Cog6ToothIcon } from './icons';
+import { PlusIcon, UsersIcon, TrashIcon, LockClosedIcon, Cog6ToothIcon, MagnifyingGlassIcon } from './icons';
 import Avatar from './Avatar';
 import AuthControl from './AuthControl';
 
@@ -12,6 +12,7 @@ interface ChatListProps {
   onNewChat: () => void;
   onManagePersonas: () => void;
   onOpenSettings: () => void;
+  onOpenSearch: () => void;
   onDeleteChat: (id: string) => void;
   isMobileOpen: boolean;
   onMobileClose: () => void;
@@ -76,6 +77,7 @@ const ChatList: React.FC<ChatListProps> = ({
   onNewChat,
   onManagePersonas,
   onOpenSettings,
+  onOpenSearch,
   onDeleteChat,
   isMobileOpen,
   onMobileClose,
@@ -103,6 +105,9 @@ const ChatList: React.FC<ChatListProps> = ({
         <header className="p-3 bg-panel-header-bg flex justify-between items-center h-[60px]">
           <h1 className="text-lg font-semibold text-text-primary">AI Chats</h1>
           <div className="flex items-center gap-2">
+            <button onClick={onOpenSearch} className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg" title="Search messages">
+              <MagnifyingGlassIcon className="h-6 w-6" />
+            </button>
             <button onClick={onNewChat} className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg" title="New chat">
               <PlusIcon className="h-6 w-6" />
             </button>

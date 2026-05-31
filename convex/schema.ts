@@ -87,7 +87,9 @@ export default defineSchema({
         }),
       ),
     ),
-  }).index("by_chat_room", ["chatRoomId"]),
+  })
+    .index("by_chat_room", ["chatRoomId"])
+    .searchIndex("search_text", { searchField: "text", filterFields: ["chatRoomId"] }),
 
   // Cached link previews (OpenGraph metadata), keyed by URL. Populated by a
   // scheduled action when a message containing a URL is posted; messages render

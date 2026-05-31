@@ -454,6 +454,69 @@ export const getMessages = query({
   },
 });
 
+// Full-text search across the caller's readable messages. Returns the matching
+// messages with their chat topic + author name, access-filtered (public rooms +
+// the caller's own private rooms only).
+export const searchMessages = query({
+  args: { query: v.string() },
+  handler: async (ctx, args) => {
+    const q = args.query.trim();
+    if (q.length < 2) return [];
+    const userId = await getAuthUserId(ctx);
+    const hits = await ctx.db
+      .query("messages")
+      .withSearchIndex("search_text", (s) => s.search("text", q))
+      .take(40);
+
+    const roomCache = new Map<string, { topic: string; ownerId?: Id<"users">; visibility?: "public" | "private" } | null>();
+    const personaCache = new Map<string, string>();
+    const results: {
+      messageId: Id<"messages">;
+      chatId: Id<"chatRooms">;
+      chatTopic: string;
+      authorName: string;
+      text: string;
+      timestamp: number;
+    }[] = [];
+
+    for (const m of hits) {
+      let room = roomCache.get(m.chatRoomId);
+      if (room === undefined) {
+        room = await ctx.db.get(m.chatRoomId);
+        roomCache.set(m.chatRoomId, room);
+      }
+      if (!room || !canRead(room, userId)) continue;
+
+      let authorName = "You";
+      if (m.authorId !== "user") {
+        let name = personaCache.get(m.authorId);
+        if (name === undefined) {
+          let p = null;
+          try {
+            p = await ctx.db.get(m.authorId as Id<"personas">);
+          } catch {
+            p = null;
+          }
+          name = p?.name ?? "Unknown";
+          personaCache.set(m.authorId, name);
+        }
+        authorName = name;
+      }
+
+      results.push({
+        messageId: m._id,
+        chatId: m.chatRoomId,
+        chatTopic: room.topic,
+        authorName,
+        text: m.text,
+        timestamp: m.timestamp,
+      });
+      if (results.length >= 25) break;
+    }
+    return results;
+  },
+});
+
 // Add a message to a chat room
 export const addMessage = mutation({
   args: {
