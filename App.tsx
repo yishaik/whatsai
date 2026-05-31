@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useConvexAuth } from 'convex/react';
 import { useAuthActions } from '@convex-dev/auth/react';
-import { useConvexData, Persona, ChatRoom, Message } from './hooks/useConvexData';
+import { useConvexData, Persona, ChatRoom, Message, Attachment } from './hooks/useConvexData';
 import { useChatMessages } from './hooks/useChatMessages';
 import ChatList from './components/ChatList';
 import ChatView from './components/ChatView';
@@ -9,7 +9,7 @@ import PersonaManager from './components/PersonaManager';
 import CreateChatModal from './components/CreateChatModal';
 import EditChatModal from './components/EditChatModal';
 import SettingsModal from './components/SettingsModal';
-import { generateAvatar, generateGroupChatAvatar } from './services/geminiService';
+import { generateAvatar, generateGroupChatAvatar, generateImage } from './services/geminiService';
 import { DEFAULT_AVATAR } from './data/defaultPersonas';
 import { Bars3Icon } from './components/icons';
 
@@ -146,6 +146,19 @@ const App: React.FC = () => {
     await updateChatRoomInDb(chatId, { avatarStorageId });
   };
 
+  // Generate an image from a prompt and return it as a message attachment.
+  const onGenerateImage = async (prompt: string): Promise<Attachment> => {
+    const dataUri = await generateImage(prompt);
+    const storageId = await uploadAvatar(dataUri); // data URI -> Convex storage id
+    const base64 = dataUri.split(',')[1] || '';
+    return {
+      storageId,
+      name: 'generated-image.png',
+      mimeType: 'image/png',
+      size: Math.floor((base64.length * 3) / 4),
+    };
+  };
+
   const addMessageToChat = async (
     chatId: string,
     messageData: Omit<Message, 'id' | 'timestamp'>,
@@ -198,6 +211,7 @@ const App: React.FC = () => {
           defaultModel={defaultModel}
           onSendMessage={addMessageToChat}
           onUploadFile={uploadFile}
+          onGenerateImage={onGenerateImage}
           onClaimResponse={claimResponseSlot}
           onEditChat={() => activeChat && setEditingChatRoom(activeChat)}
           onDeleteChat={activeChat ? () => deleteChatRoom(activeChat.id) : undefined}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 
 import { ChatRoom, Persona, Message, Attachment } from '../types';
 import { USER_ID } from '../constants';
 import MessageBubble from './MessageBubble';
-import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon, XMarkIcon, PhoneIcon } from './icons';
+import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon, XMarkIcon, PhoneIcon, PhotoIcon } from './icons';
 import Avatar from './Avatar';
 import SourceViewerModal from './SourceViewerModal';
 // Lazy so @google/genai (the Live SDK) only loads when a call actually starts.
@@ -21,6 +21,7 @@ interface ChatViewProps {
   defaultModel: string;
   onSendMessage: (chatId: string, message: Omit<Message, 'id' | 'timestamp'>) => void | Promise<void>;
   onUploadFile: (file: File) => Promise<Attachment>;
+  onGenerateImage: (prompt: string) => Promise<Attachment>;
   onClaimResponse: (chatId: string, triggerMessageId: string, personaId: string) => Promise<boolean>;
   onEditChat?: () => void;
   onDeleteChat?: () => void;
@@ -75,7 +76,7 @@ const StreamingBubble: React.FC<{ persona: Persona; text: string }> = ({ persona
     </div>
 );
 
-const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, onSendMessage, onUploadFile, onClaimResponse, onEditChat, onDeleteChat }) => {
+const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, onSendMessage, onUploadFile, onGenerateImage, onClaimResponse, onEditChat, onDeleteChat }) => {
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
@@ -87,6 +88,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
   const [viewingSourceUrl, setViewingSourceUrl] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [generatingImage, setGeneratingImage] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -110,6 +112,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       setFailedPersonas([]);
       setPendingFiles([]);
       setAttachError(null);
+      setGeneratingImage(false);
       stopSpeaking();
       setSpeakingId(null);
       setCallPersona(null);
@@ -166,6 +169,28 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
 
   const removePendingFile = (index: number) => {
     setPendingFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleGenerateImage = async () => {
+    const prompt = inputText.trim();
+    if (!chatRoom || !authReady || !prompt || generatingImage || uploading || typingPersonas.size !== 0) return;
+    setAttachError(null);
+    setGeneratingImage(true);
+    try {
+      const attachment = await onGenerateImage(prompt);
+      await onSendMessage(chatRoom.id, {
+        authorId: USER_ID,
+        text: prompt,
+        sources: [],
+        attachments: [attachment],
+      });
+      setInputText('');
+    } catch (error) {
+      console.error('Image generation failed:', error);
+      setAttachError(`Image generation failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setGeneratingImage(false);
+    }
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -450,23 +475,39 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isGenerating || !authReady || uploading || pendingFiles.length >= MAX_ATTACHMENTS}
+            disabled={isGenerating || !authReady || uploading || generatingImage || pendingFiles.length >= MAX_ATTACHMENTS}
             title="Attach images"
             className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <PaperClipIcon className="h-6 w-6" />
           </button>
+          <button
+            type="button"
+            onClick={handleGenerateImage}
+            disabled={!inputText.trim() || isGenerating || !authReady || uploading || generatingImage}
+            title="Generate an image from your text"
+            className="text-icon-default hover:text-accent-blue p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {generatingImage ? (
+              <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+              </svg>
+            ) : (
+              <PhotoIcon className="h-6 w-6" />
+            )}
+          </button>
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder={!authReady ? "Connecting..." : isGenerating ? "AI is responding..." : uploading ? "Uploading..." : "Type a message..."}
-            disabled={isGenerating || !authReady || uploading}
+            placeholder={!authReady ? "Connecting..." : isGenerating ? "AI is responding..." : uploading ? "Uploading..." : generatingImage ? "Generating image..." : "Type a message or describe an image..."}
+            disabled={isGenerating || !authReady || uploading || generatingImage}
             className="flex-1 bg-item-active-bg rounded-lg p-3 text-text-primary outline-none focus:ring-2 focus:ring-accent-green disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <button
             type="submit"
-            disabled={(!inputText.trim() && pendingFiles.length === 0) || isGenerating || !authReady || uploading}
+            disabled={(!inputText.trim() && pendingFiles.length === 0) || isGenerating || !authReady || uploading || generatingImage}
             className={`rounded-full p-3 text-white transition flex-shrink-0 ${
               isGenerating || uploading
                 ? 'bg-gray-500 cursor-not-allowed'
