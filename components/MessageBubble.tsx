@@ -23,6 +23,15 @@ interface MessageBubbleProps {
   canRegenerate?: boolean;
 }
 
+// Short, locale-aware time (e.g. "2:34 PM") for a message timestamp.
+const formatTime = (ts: number): string => {
+  try {
+    return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+};
+
 const getDomain = (url: string) => {
   try {
     return new URL(url).hostname.replace('www.', '');
@@ -141,6 +150,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
             ))}
           </div>
         )}
+        <span className={`text-[10px] text-text-secondary mt-0.5 px-1 ${isOwnMessage ? 'self-end' : 'self-start'}`}>
+          {formatTime(message.timestamp)}
+        </span>
       </div>
     </div>
   );
