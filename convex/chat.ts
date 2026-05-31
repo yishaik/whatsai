@@ -45,6 +45,7 @@ const IP_RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
   ai: { limit: 80, windowMs: 60_000 }, // /api/persona-response
   image: { limit: 20, windowMs: 60_000 }, // /api/avatar, /api/group-avatar
   voice: { limit: 20, windowMs: 60_000 }, // /api/live-token
+  moderate: { limit: 200, windowMs: 60_000 }, // /api/moderate (cheap; called per message + reply)
 };
 
 // Core fixed-window consume for an arbitrary key. Returns false if exhausted.

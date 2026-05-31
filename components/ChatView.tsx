@@ -9,6 +9,7 @@ import SourceViewerModal from './SourceViewerModal';
 const VoiceCallOverlay = lazy(() => import('./VoiceCallOverlay'));
 import { generatePersonaResponse, streamPersonaResponse } from '../services/geminiService';
 import { speak, stopSpeaking, ttsSupported } from '../services/speech';
+import { moderateText, describeCategories } from '../services/moderation';
 
 // v1 attachments: images only, capped in count and size.
 const MAX_ATTACHMENTS = 4;
@@ -91,6 +92,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
+  const [moderating, setModerating] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -198,10 +200,23 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     const text = inputText.trim();
-    if (!chatRoom || typingPersonas.size !== 0 || !authReady || uploading) return;
+    if (!chatRoom || typingPersonas.size !== 0 || !authReady || uploading || moderating) return;
     if (!text && pendingFiles.length === 0) return;
 
     setFailedPersonas([]);
+
+    // Screen the user's text (fails open). Blocks clearly harmful input before
+    // it's posted; attachments/empty text skip the check.
+    if (text) {
+      setModerating(true);
+      const mod = await moderateText(text);
+      setModerating(false);
+      if (mod.flagged) {
+        const reason = describeCategories(mod.categories);
+        setAttachError(`Message blocked${reason ? ` (${reason})` : ''}. Please revise and try again.`);
+        return;
+      }
+    }
 
     let attachments: Attachment[] = [];
     if (pendingFiles.length > 0) {
@@ -314,27 +329,37 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                 response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, model, triggerImages, chatTemperature, signal);
             }
             if (signal.aborted) return;
+            // Screen the persona's reply (fails open). Flagged output is replaced
+            // before it's persisted, so the stored/shared message — what other
+            // users in a public room see — is always the safe version.
+            const outMod = await moderateText(response.text);
+            if (signal.aborted) return;
+            const replyText = outMod.flagged ? '⚠️ This reply was withheld (content policy).' : response.text;
+            const replySources = outMod.flagged ? [] : response.sources;
             // Make this reply visible to the next persona in the round. Convex's
             // live query will reconcile the real message; this is only the local
             // context fed to subsequent personas this round.
             runningHistory.push({
                 id: `pending-${lastMessage.id}-${persona.id}`,
                 authorId: persona.id,
-                text: response.text,
+                text: replyText,
                 timestamp: lastMessage.timestamp + runningHistory.length,
-                sources: response.sources,
+                sources: replySources,
             });
             onSendMessage(chatId, {
                 authorId: persona.id,
-                text: response.text,
-                sources: response.sources,
+                text: replyText,
+                sources: replySources,
             });
             // Persist any reminders the persona scheduled in this reply. Deduped
-            // server-side, so the multi-persona loop won't create copies.
-            for (const reminder of response.reminders ?? []) {
-                onScheduleReminder(chatId, persona.id, reminder).catch((err) =>
-                    console.error('Failed to schedule reminder:', err),
-                );
+            // server-side, so the multi-persona loop won't create copies. Skip if
+            // the reply was withheld by moderation.
+            if (!outMod.flagged) {
+                for (const reminder of response.reminders ?? []) {
+                    onScheduleReminder(chatId, persona.id, reminder).catch((err) =>
+                        console.error('Failed to schedule reminder:', err),
+                    );
+                }
             }
         } catch (error) {
             if (signal.aborted) return;
@@ -528,20 +553,20 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder={!authReady ? "Connecting..." : isGenerating ? "AI is responding..." : uploading ? "Uploading..." : generatingImage ? "Generating image..." : "Type a message or describe an image..."}
-            disabled={isGenerating || !authReady || uploading || generatingImage}
+            placeholder={!authReady ? "Connecting..." : isGenerating ? "AI is responding..." : uploading ? "Uploading..." : generatingImage ? "Generating image..." : moderating ? "Checking…" : "Type a message or describe an image..."}
+            disabled={isGenerating || !authReady || uploading || generatingImage || moderating}
             className="flex-1 bg-item-active-bg rounded-lg p-3 text-text-primary outline-none focus:ring-2 focus:ring-accent-green disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <button
             type="submit"
-            disabled={(!inputText.trim() && pendingFiles.length === 0) || isGenerating || !authReady || uploading || generatingImage}
+            disabled={(!inputText.trim() && pendingFiles.length === 0) || isGenerating || !authReady || uploading || generatingImage || moderating}
             className={`rounded-full p-3 text-white transition flex-shrink-0 ${
-              isGenerating || uploading
+              isGenerating || uploading || moderating
                 ? 'bg-gray-500 cursor-not-allowed'
                 : 'bg-accent-green hover:bg-opacity-90 disabled:bg-gray-500 disabled:cursor-not-allowed'
             }`}
           >
-            {isGenerating || uploading ? (
+            {isGenerating || uploading || moderating ? (
               <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
