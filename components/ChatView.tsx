@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
-import { ChatRoom, Persona, Message, Attachment } from '../types';
+import { ChatRoom, Persona, Message, Attachment, ReminderInput } from '../types';
 import { USER_ID } from '../constants';
 import MessageBubble from './MessageBubble';
-import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon, XMarkIcon, PhoneIcon, PhotoIcon } from './icons';
+import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon, XMarkIcon, PhoneIcon, PhotoIcon, ClockIcon } from './icons';
 import Avatar from './Avatar';
 import SourceViewerModal from './SourceViewerModal';
 // Lazy so @google/genai (the Live SDK) only loads when a call actually starts.
@@ -22,7 +22,9 @@ interface ChatViewProps {
   onSendMessage: (chatId: string, message: Omit<Message, 'id' | 'timestamp'>) => void | Promise<void>;
   onUploadFile: (file: File) => Promise<Attachment>;
   onGenerateImage: (prompt: string) => Promise<Attachment>;
+  onScheduleReminder: (chatId: string, personaId: string, reminder: ReminderInput) => Promise<void>;
   onClaimResponse: (chatId: string, triggerMessageId: string, personaId: string) => Promise<boolean>;
+  onOpenReminders: () => void;
   onEditChat?: () => void;
   onDeleteChat?: () => void;
 }
@@ -76,7 +78,7 @@ const StreamingBubble: React.FC<{ persona: Persona; text: string }> = ({ persona
     </div>
 );
 
-const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, onSendMessage, onUploadFile, onGenerateImage, onClaimResponse, onEditChat, onDeleteChat }) => {
+const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, onSendMessage, onUploadFile, onGenerateImage, onScheduleReminder, onClaimResponse, onOpenReminders, onEditChat, onDeleteChat }) => {
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
@@ -317,6 +319,13 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                 text: response.text,
                 sources: response.sources,
             });
+            // Persist any reminders the persona scheduled in this reply. Deduped
+            // server-side, so the multi-persona loop won't create copies.
+            for (const reminder of response.reminders ?? []) {
+                onScheduleReminder(chatId, persona.id, reminder).catch((err) =>
+                    console.error('Failed to schedule reminder:', err),
+                );
+            }
         } catch (error) {
             if (signal.aborted) return;
             console.error("Failed to get AI response for", persona.name, error);
@@ -334,7 +343,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
             });
         }
     }
-  }, [chatRoom, personasMap, onSendMessage, onClaimResponse, defaultModel]);
+  }, [chatRoom, personasMap, onSendMessage, onScheduleReminder, onClaimResponse, defaultModel]);
   
   useEffect(() => {
     if (chatRoom && chatRoom.messages.length > 0) {
@@ -368,6 +377,14 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
             {['You', ...chatRoom.personaIds.map(id => personasMap[id]?.name || 'Unknown')].join(', ')}
           </p>
         </div>
+        <button
+          onClick={onOpenReminders}
+          className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0"
+          title="Reminders"
+        >
+          <ClockIcon className="h-5 w-5" />
+        </button>
+
         {chatRoom.personaIds.length > 0 && (
           <div className="relative flex-shrink-0">
             <button

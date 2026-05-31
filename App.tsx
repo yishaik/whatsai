@@ -9,6 +9,7 @@ import PersonaManager from './components/PersonaManager';
 import CreateChatModal from './components/CreateChatModal';
 import EditChatModal from './components/EditChatModal';
 import SettingsModal from './components/SettingsModal';
+import RemindersModal from './components/RemindersModal';
 import { generateAvatar, generateGroupChatAvatar, generateImage } from './services/geminiService';
 import { DEFAULT_AVATAR } from './data/defaultPersonas';
 import { Bars3Icon } from './components/icons';
@@ -32,6 +33,9 @@ const App: React.FC = () => {
     uploadFile,
     defaultModel,
     setDefaultModel,
+    reminders,
+    scheduleReminder,
+    cancelReminder,
   } = useConvexData();
 
   const activeChatMessages = useChatMessages(activeChatId);
@@ -49,6 +53,7 @@ const App: React.FC = () => {
   const [isPersonaManagerOpen, setIsPersonaManagerOpen] = useState(false);
   const [isCreateChatOpen, setIsCreateChatOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isRemindersOpen, setIsRemindersOpen] = useState(false);
   const [editingChatRoom, setEditingChatRoom] = useState<ChatRoom | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -212,7 +217,9 @@ const App: React.FC = () => {
           onSendMessage={addMessageToChat}
           onUploadFile={uploadFile}
           onGenerateImage={onGenerateImage}
+          onScheduleReminder={scheduleReminder}
           onClaimResponse={claimResponseSlot}
+          onOpenReminders={() => setIsRemindersOpen(true)}
           onEditChat={() => activeChat && setEditingChatRoom(activeChat)}
           onDeleteChat={activeChat ? () => deleteChatRoom(activeChat.id) : undefined}
         />
@@ -234,6 +241,15 @@ const App: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         defaultModel={defaultModel}
         onSetDefaultModel={setDefaultModel}
+      />
+
+      <RemindersModal
+        isOpen={isRemindersOpen}
+        onClose={() => setIsRemindersOpen(false)}
+        reminders={reminders}
+        personasMap={personasMap}
+        chatRooms={chatRooms}
+        onCancel={cancelReminder}
       />
 
       <CreateChatModal

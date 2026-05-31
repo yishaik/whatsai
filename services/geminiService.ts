@@ -1,8 +1,62 @@
-import type { Persona, Message, Source } from '../types';
+import type { Persona, Message, Source, ReminderInput } from '../types';
 
 type PersonaResponsePayload = {
   text: string;
   sources: Source[];
+  // Reminders the persona scheduled in this reply (parsed from a [[REMINDER]]
+  // token in the model output). Empty unless the user asked for a reminder.
+  reminders: ReminderInput[];
+};
+
+const REPEATS = ['none', 'hourly', 'daily', 'weekly', 'monthly'] as const;
+const REMINDER_TOKEN = /\[\[REMINDER\]\]\s*(\{[^{}]*\})/g;
+
+// The user's IANA timezone, so the model can resolve "tomorrow at 9am".
+const userTimezone = (): string => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+};
+
+// Extract any [[REMINDER]] tokens from a completed reply and return the clean
+// display text with all token traces removed. Malformed tokens are dropped (the
+// reminder is simply not created) — this can never break the reply.
+const stripReminderTokens = (raw: string): { text: string; reminders: ReminderInput[] } => {
+  const reminders: ReminderInput[] = [];
+  let m: RegExpExecArray | null;
+  REMINDER_TOKEN.lastIndex = 0;
+  while ((m = REMINDER_TOKEN.exec(raw)) !== null) {
+    try {
+      const obj = JSON.parse(m[1]);
+      if (obj && typeof obj.text === 'string' && typeof obj.when === 'string') {
+        const repeat = REPEATS.includes(obj.repeat) ? obj.repeat : 'none';
+        reminders.push({ text: obj.text, when: obj.when, repeat });
+      }
+    } catch {
+      // ignore malformed token
+    }
+  }
+  const text = raw
+    .replace(REMINDER_TOKEN, '')
+    // Safety net: remove any leftover token (e.g. JSON we couldn't parse) so the
+    // raw marker never reaches the user.
+    .replace(/\[\[REMINDER\]\][\s\S]*$/, '')
+    .trim();
+  return { text, reminders };
+};
+
+// Hide a complete-or-partial [[REMINDER]] marker from text as it streams in, so
+// the token never flashes mid-stream.
+const stripForDisplay = (s: string): string => {
+  const idx = s.indexOf('[[REMINDER]]');
+  if (idx !== -1) return s.slice(0, idx).trimEnd();
+  const marker = '[[REMINDER]]';
+  for (let n = marker.length - 1; n > 0; n--) {
+    if (s.endsWith(marker.slice(0, n))) return s.slice(0, s.length - n).trimEnd();
+  }
+  return s;
 };
 
 type AvatarPayload = {
@@ -106,7 +160,7 @@ export const generatePersonaResponse = async (
     strippedPersonasMap[id] = stripAvatar(p);
   }
 
-  return postJson<PersonaResponsePayload>('/api/persona-response', {
+  const payload = await postJson<{ text: string; sources: Source[] }>('/api/persona-response', {
     persona: stripAvatar(persona),
     chatTopic,
     history,
@@ -114,7 +168,10 @@ export const generatePersonaResponse = async (
     personasMap: strippedPersonasMap,
     model,
     images,
+    timezone: userTimezone(),
   }, signal);
+  const { text, reminders } = stripReminderTokens(payload.text ?? '');
+  return { text, sources: payload.sources ?? [], reminders };
 };
 
 // Streaming variant: posts with `stream: true`, reads Server-Sent Events, and
@@ -148,6 +205,7 @@ export const streamPersonaResponse = async (
       personasMap: strippedPersonasMap,
       model,
       images,
+      timezone: userTimezone(),
       stream: true,
     }),
     signal,
@@ -184,13 +242,14 @@ export const streamPersonaResponse = async (
       if (payload.error) throw new Error(payload.error);
       if (typeof payload.delta === 'string') {
         fullText += payload.delta;
-        onDelta(fullText);
+        onDelta(stripForDisplay(fullText));
       }
       if (payload.done) sources = payload.sources ?? [];
     }
   }
 
-  return { text: fullText.trim(), sources };
+  const { text, reminders } = stripReminderTokens(fullText.trim());
+  return { text, sources, reminders };
 };
 
 export const generateAvatar = async (name: string, prompt: string): Promise<string> => {

@@ -163,11 +163,25 @@ export default async function handler(req: any, res: any) {
       .join(', ');
     const formattedHistory = formatChatHistory(history, personasMap);
 
+    const timezone = typeof body.timezone === 'string' && body.timezone ? body.timezone : 'UTC';
+    const nowIso = new Date().toISOString();
+    // Reminder/recurring-message capability. The model emits a strict token only
+    // when the user actually asks; the client parses it, strips it from the
+    // displayed text, and persists the reminder (auth stays on the client). A
+    // text token (not provider function-calling) so it works uniformly across
+    // Gemini/OpenAI and streaming, and never conflicts with Google Search.
+    const reminderInstruction = `
+
+You can schedule reminders or recurring messages for the user. The current time is ${nowIso} (UTC); the user's timezone is "${timezone}".
+If — and ONLY if — the user clearly asks to be reminded of something or to repeat a message on a schedule, first reply naturally (briefly confirm what you'll send and when), then append on a NEW LINE a token of EXACTLY this form (and nothing after it):
+[[REMINDER]]{"text":"<message to post at that time>","when":"<absolute ISO 8601 datetime with timezone offset>","repeat":"none"}
+Set "repeat" to one of "none" (one-off), "hourly", "daily", "weekly", or "monthly". Compute "when" as the first occurrence, interpreting relative times ("in 10 minutes", "tomorrow at 9am") in the user's timezone. Never output this token unless the user actually requested a reminder, and never mention the token or its format in your reply.`;
+
     const systemInstruction = `You are in a group chat. The chat topic is: "${chatTopic}".
 Your persona is "${personaWithoutAvatar.name}". Your personality is: "${personaWithoutAvatar.prompt}".
 The other participants are: User${otherPersonas ? `, ${otherPersonas}` : ''}.
 You must respond as "${personaWithoutAvatar.name}". Your response must be in character.
-Do not prefix your response with your name (e.g., don't write "${personaWithoutAvatar.name}:"). Just provide the message content.`;
+Do not prefix your response with your name (e.g., don't write "${personaWithoutAvatar.name}:"). Just provide the message content.${reminderInstruction}`;
 
     const imageNote = images.length
       ? 'The user attached the image(s) below with their latest message. Take them into account.\n\n'

@@ -2,10 +2,10 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { Id } from "../convex/_generated/dataModel";
 import { useState, useMemo } from "react";
-import { Attachment } from "../types";
+import { Attachment, ReminderInput, Reminder } from "../types";
 import { DEFAULT_MODEL_ID } from "../services/models";
 
-export type { Attachment };
+export type { Attachment, Reminder };
 
 // Types matching the existing app types
 export interface Persona {
@@ -66,6 +66,18 @@ export function useConvexData() {
   const deleteMessageMutation = useMutation(api.chat.deleteMessage);
   const claimResponseSlotMutation = useMutation(api.chat.claimResponseSlot);
   const generateUploadUrlMutation = useMutation(api.chat.generateUploadUrl);
+
+  // Reminders
+  const reminders: Reminder[] = (useQuery(api.reminders.listMyReminders) || []).map((r: any) => ({
+    id: r.id,
+    chatId: r.chatId,
+    personaId: r.personaId,
+    text: r.text,
+    nextRunAt: r.nextRunAt,
+    repeat: r.repeat,
+  }));
+  const scheduleReminderMutation = useMutation(api.reminders.scheduleReminder);
+  const cancelReminderMutation = useMutation(api.reminders.cancelReminder);
 
   // Convert Convex data to app format
   const personas: Persona[] = useMemo(() => {
@@ -236,6 +248,25 @@ export function useConvexData() {
     return id;
   };
 
+  // Schedule a reminder parsed from a persona reply (auth is the caller's).
+  const scheduleReminder = async (
+    chatId: string,
+    personaId: string,
+    reminder: ReminderInput,
+  ): Promise<void> => {
+    await scheduleReminderMutation({
+      chatId: chatId as Id<"chatRooms">,
+      personaId,
+      text: reminder.text,
+      when: reminder.when,
+      repeat: reminder.repeat,
+    });
+  };
+
+  const cancelReminder = async (id: string): Promise<void> => {
+    await cancelReminderMutation({ id: id as Id<"reminders"> });
+  };
+
   // Atomically claim the right to generate a persona's reply to a user message.
   // Returns true if this client should generate the response.
   const claimResponseSlot = async (
@@ -280,5 +311,10 @@ export function useConvexData() {
     uploadFile,
     claimResponseSlot,
     deleteMessage: (id: string) => deleteMessageMutation({ id: id as Id<"messages"> }),
+
+    // Reminders
+    reminders,
+    scheduleReminder,
+    cancelReminder,
   };
 }
