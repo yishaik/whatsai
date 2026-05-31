@@ -881,7 +881,8 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       {callPersona && (
         <Suspense fallback={null}>
           <VoiceCallOverlay
-            persona={callPersona}
+            personas={chatPersonas}
+            initialPersona={callPersona}
             chatTopic={chatRoom.topic}
             onClose={() => setCallPersona(null)}
           />
