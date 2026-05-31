@@ -95,6 +95,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
   const [generatingImage, setGeneratingImage] = useState(false);
   const [moderating, setModerating] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -248,6 +249,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     setInputText('');
     setPendingFiles([]);
     setAttachError(null);
+    setMentionQuery(null);
   };
 
   const triggerAIResponses = useCallback(async (lastMessage: Message) => {
@@ -279,11 +281,17 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
         .map(id => personasMap[id])
         .filter((p): p is Persona => Boolean(p));
 
-    // Per-chat cap on how many participants reply (default: all). The full list
-    // is still passed as context so responders know who else is in the room.
-    const responders = typeof maxResponders === 'number' && maxResponders > 0
-        ? personasInChat.slice(0, maxResponders)
-        : personasInChat;
+    // @mention targeting: if the user @mentions one or more participants by
+    // name, only those reply (overriding the maxResponders cap). Otherwise the
+    // per-chat cap applies (default: all). The full participant list is always
+    // passed as context so responders know who else is in the room.
+    const mentioned = personasInChat.filter((p) =>
+        lastMessage.text.toLowerCase().includes('@' + p.name.toLowerCase()));
+    const responders = mentioned.length > 0
+        ? mentioned
+        : typeof maxResponders === 'number' && maxResponders > 0
+            ? personasInChat.slice(0, maxResponders)
+            : personasInChat;
 
     const controller = new AbortController();
     generationAbortRef.current = controller;
@@ -395,6 +403,24 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatRoom?.messages]);
+
+  // Mention autocomplete: when the input ends with "@<fragment>", offer chat
+  // participants whose name matches; selecting one inserts "@Name ".
+  const handleInputChange = (v: string) => {
+    setInputText(v);
+    const m = v.match(/@([^\s@]*)$/);
+    setMentionQuery(m ? m[1] : null);
+  };
+  const completeMention = (name: string) => {
+    setInputText((prev) => prev.replace(/@[^\s@]*$/, '@' + name + ' '));
+    setMentionQuery(null);
+  };
+  const chatPersonas = chatRoom
+    ? chatRoom.personaIds.map((id) => personasMap[id]).filter((p): p is Persona => Boolean(p))
+    : [];
+  const mentionMatches = mentionQuery !== null
+    ? chatPersonas.filter((p) => p.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 5)
+    : [];
 
   const isGenerating = typingPersonas.size > 0;
 
@@ -511,6 +537,21 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       </main>
 
       <footer className="p-3 bg-panel-header-bg">
+        {mentionMatches.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {mentionMatches.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => completeMention(p.name)}
+                className="flex items-center gap-1.5 bg-item-active-bg hover:bg-item-hover-bg rounded-full pl-1 pr-3 py-1"
+              >
+                <Avatar src={p.avatar} name={p.name} size={20} />
+                <span className="text-sm text-text-primary">{p.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {pendingFiles.length > 0 && (
           <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
             {pendingFiles.map((file, i) => (
@@ -558,8 +599,8 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
           <input
             type="text"
             value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            placeholder={!authReady ? "Connecting..." : isGenerating ? "AI is responding..." : uploading ? "Uploading..." : generatingImage ? "Generating image..." : moderating ? "Checking…" : "Type a message or describe an image..."}
+            onChange={(e) => handleInputChange(e.target.value)}
+            placeholder={!authReady ? "Connecting..." : isGenerating ? "AI is responding..." : uploading ? "Uploading..." : generatingImage ? "Generating image..." : moderating ? "Checking…" : "Type a message, @mention a persona, or describe an image..."}
             disabled={isGenerating || !authReady || uploading || generatingImage || moderating}
             className="flex-1 bg-item-active-bg rounded-lg p-3 text-text-primary outline-none focus:ring-2 focus:ring-accent-green disabled:opacity-50 disabled:cursor-not-allowed"
           />
