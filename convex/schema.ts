@@ -15,6 +15,9 @@ export default defineSchema({
     avatarStorageId: v.optional(v.id("_storage")),
     prompt: v.string(),
     canSearch: v.boolean(),
+    // Optional per-persona model override (id from the shared model registry).
+    // When unset, the user's default model is used.
+    model: v.optional(v.string()),
     createdAt: v.number(),
   }),
 
@@ -33,6 +36,12 @@ export default defineSchema({
     // with no data migration.
     visibility: v.optional(v.union(v.literal("public"), v.literal("private"))),
   }).index("by_owner", ["ownerId"]),
+
+  // Per-user preferences (e.g. the default model for persona replies).
+  userSettings: defineTable({
+    userId: v.id("users"),
+    defaultModel: v.string(),
+  }).index("by_user", ["userId"]),
 
   // הודעות
   messages: defineTable({

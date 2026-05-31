@@ -85,6 +85,37 @@ export const getCurrentUser = query({
   },
 });
 
+// The caller's saved preferences (currently just the default reply model).
+export const getMySettings = query({
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+    const settings = await ctx.db
+      .query("userSettings")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first();
+    return settings ? { defaultModel: settings.defaultModel } : null;
+  },
+});
+
+// Set the caller's default model for persona replies (upsert).
+export const setDefaultModel = mutation({
+  args: { model: v.string() },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+    const existing = await ctx.db
+      .query("userSettings")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first();
+    if (existing) {
+      await ctx.db.patch(existing._id, { defaultModel: args.model });
+    } else {
+      await ctx.db.insert("userSettings", { userId, defaultModel: args.model });
+    }
+  },
+});
+
 // Generate a short-lived URL the client can POST an avatar image to.
 export const generateUploadUrl = mutation({
   handler: async (ctx) => {
@@ -118,6 +149,7 @@ export const createPersona = mutation({
     avatarStorageId: v.optional(v.id("_storage")),
     prompt: v.string(),
     canSearch: v.boolean(),
+    model: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const personaId = await ctx.db.insert("personas", {
@@ -137,6 +169,7 @@ export const updatePersona = mutation({
     avatarStorageId: v.optional(v.id("_storage")),
     prompt: v.optional(v.string()),
     canSearch: v.optional(v.boolean()),
+    model: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;

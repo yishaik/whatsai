@@ -1,4 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
+import OpenAI from 'openai';
+import { providerForModel, DEFAULT_MODEL_ID } from '../services/models';
 
 type Persona = {
   id: string;
@@ -117,7 +119,10 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Missing required fields.' });
     }
 
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const requestedModel =
+      typeof body.model === 'string' && body.model ? body.model : DEFAULT_MODEL_ID;
+    const provider = providerForModel(requestedModel);
+
     const otherPersonas = allPersonasInChat
       .filter((participant: any) => participant.id !== personaWithoutAvatar.id)
       .map((participant: any) => participant.name)
@@ -130,45 +135,98 @@ The other participants are: User${otherPersonas ? `, ${otherPersonas}` : ''}.
 You must respond as "${personaWithoutAvatar.name}". Your response must be in character.
 Do not prefix your response with your name (e.g., don't write "${personaWithoutAvatar.name}:"). Just provide the message content.`;
 
-    const config: Record<string, any> = {
-      systemInstruction,
-      temperature: 0.9,
-      topP: 0.95,
-      topK: 40,
-    };
-
-    if (personaWithoutAvatar.canSearch) {
-      config.tools = [{ googleSearch: {} }];
-    }
-
-    const imageParts = await buildImageParts(images);
-    const imageNote = imageParts.length
+    const imageNote = images.length
       ? 'The user attached the image(s) below with their latest message. Take them into account.\n\n'
       : '';
+    const userPromptText = `This is the chat history so far:\n${formattedHistory}\n\n${imageNote}Your turn is next. What is your reply?`;
+    const wantStream = body.stream === true;
 
-    const model = 'gemini-3.1-flash-lite-preview';
-    const contents = [
-      {
-        role: 'user',
-        parts: [
-          { text: `This is the chat history so far:\n${formattedHistory}\n\n${imageNote}Your turn is next. What is your reply?` },
-          ...imageParts,
-        ],
-      },
-    ];
-
-    // Streaming path: emit Server-Sent Events. The client renders deltas live
-    // and persists the final message to Convex once the stream is done.
-    if (body.stream === true) {
+    // Open a Server-Sent Events response and return a `send(obj)` writer.
+    const openSse = () => {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
         Connection: 'keep-alive',
       });
       if (typeof res.flushHeaders === 'function') res.flushHeaders();
-      const send = (obj: any) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+      return (obj: any) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+    };
+
+    // ==================== OPENAI ====================
+    if (provider === 'openai') {
+      const openaiKey = process.env.OPENAI_API_KEY;
+      if (!openaiKey) {
+        const msg = 'OPENAI_API_KEY is not configured on the server.';
+        if (wantStream) { const send = openSse(); send({ error: msg }); res.end(); return; }
+        return res.status(500).json({ error: msg });
+      }
+      const openai = new OpenAI({ apiKey: openaiKey });
+      // Vision: attach images as image_url parts (OpenAI fetches the URLs).
+      const userContent: any = images.length
+        ? [
+            { type: 'text', text: userPromptText },
+            ...images
+              .filter((i: any) => i?.url)
+              .map((i: any) => ({ type: 'image_url', image_url: { url: i.url } })),
+          ]
+        : userPromptText;
+      const messages: any = [
+        { role: 'system', content: systemInstruction },
+        { role: 'user', content: userContent },
+      ];
+
+      if (wantStream) {
+        const send = openSse();
+        try {
+          const stream = await openai.chat.completions.create({
+            model: requestedModel,
+            messages,
+            temperature: 0.9,
+            stream: true,
+          });
+          for await (const chunk of stream) {
+            const delta = chunk.choices?.[0]?.delta?.content ?? '';
+            if (delta) send({ delta });
+          }
+          send({ done: true, sources: [] }); // OpenAI has no built-in web search
+        } catch (streamError) {
+          console.error('OpenAI stream error:', streamError);
+          send({ error: streamError instanceof Error ? streamError.message : 'stream failed' });
+        } finally {
+          res.end();
+        }
+        return;
+      }
+
+      const completion = await openai.chat.completions.create({
+        model: requestedModel,
+        messages,
+        temperature: 0.9,
+      });
+      const text = completion.choices?.[0]?.message?.content?.trim() ?? '';
+      return res.status(200).json({ text, sources: [] });
+    }
+
+    // ==================== GEMINI ====================
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const config: Record<string, any> = {
+      systemInstruction,
+      temperature: 0.9,
+      topP: 0.95,
+      topK: 40,
+    };
+    if (personaWithoutAvatar.canSearch) {
+      config.tools = [{ googleSearch: {} }];
+    }
+    const imageParts = await buildImageParts(images);
+    const contents = [
+      { role: 'user', parts: [{ text: userPromptText }, ...imageParts] },
+    ];
+
+    if (wantStream) {
+      const send = openSse();
       try {
-        const stream = await ai.models.generateContentStream({ model, contents, config });
+        const stream = await ai.models.generateContentStream({ model: requestedModel, contents, config });
         let grounding: any = undefined;
         for await (const chunk of stream) {
           const delta = chunk.text ?? '';
@@ -176,8 +234,7 @@ Do not prefix your response with your name (e.g., don't write "${personaWithoutA
           const gm = chunk.candidates?.[0]?.groundingMetadata;
           if (gm) grounding = gm;
         }
-        const sources = personaWithoutAvatar.canSearch ? extractSources(grounding) : [];
-        send({ done: true, sources });
+        send({ done: true, sources: personaWithoutAvatar.canSearch ? extractSources(grounding) : [] });
       } catch (streamError) {
         console.error('Error streaming persona response:', streamError);
         send({ error: streamError instanceof Error ? streamError.message : 'stream failed' });
@@ -187,16 +244,11 @@ Do not prefix your response with your name (e.g., don't write "${personaWithoutA
       return;
     }
 
-    const response = await ai.models.generateContent({ model, contents, config });
-
+    const response = await ai.models.generateContent({ model: requestedModel, contents, config });
     const responseText = response.text?.trim() ?? '';
     const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
     const sources = personaWithoutAvatar.canSearch ? extractSources(groundingMetadata) : [];
-
-    return res.status(200).json({
-      text: responseText,
-      sources,
-    });
+    return res.status(200).json({ text: responseText, sources });
   } catch (error) {
     console.error('Error generating persona response:', error);
     return res.status(500).json({

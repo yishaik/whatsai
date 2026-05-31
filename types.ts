@@ -4,6 +4,7 @@ export interface Persona {
   avatar: string; // base64 data URL of the avatar image
   prompt: string;
   canSearch?: boolean;
+  model?: string; // optional per-persona model override (registry id)
 }
 
 export interface Source {
