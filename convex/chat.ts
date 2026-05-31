@@ -339,6 +339,9 @@ export const updateChatRoom = mutation({
     avatarStorageId: v.optional(v.id("_storage")),
     personaIds: v.optional(v.array(v.id("personas"))),
     visibility: v.optional(v.union(v.literal("public"), v.literal("private"))),
+    model: v.optional(v.string()),
+    temperature: v.optional(v.number()),
+    maxResponders: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;

@@ -35,6 +35,9 @@ export interface ChatRoom {
   visibility?: "public" | "private";
   lastMessageText?: string;
   lastMessageTime?: number;
+  model?: string;
+  temperature?: number;
+  maxResponders?: number;
 }
 
 // Hook to manage all data with Convex
@@ -100,6 +103,9 @@ export function useConvexData() {
       visibility: cr.visibility ?? "public",
       lastMessageText: cr.lastMessageText,
       lastMessageTime: cr.lastMessageTime,
+      model: cr.model,
+      temperature: cr.temperature,
+      maxResponders: cr.maxResponders,
       messages: [], // Messages loaded separately
     }));
   }, [convexChatRooms]);

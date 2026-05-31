@@ -58,4 +58,8 @@ export interface ChatRoom {
   visibility?: 'public' | 'private';
   lastMessageText?: string;
   lastMessageTime?: number;
+  // Per-chat reply settings (optional; absent = app defaults).
+  model?: string; // chat-level default model (fallback between persona + user default)
+  temperature?: number;
+  maxResponders?: number; // cap on participants replying per user message
 }
