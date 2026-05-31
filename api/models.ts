@@ -17,10 +17,15 @@ const FALLBACK: Option[] = [
   { id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai' },
 ];
 
-// OpenAI text/chat models: gpt-*, o-series, chatgpt-*; exclude non-chat variants.
+// Dated snapshot suffix, e.g. -2024-08-06, -0613, -0125, -1106 (keep base alias).
+const DATED_SUFFIX = /-(\d{4}-\d{2}-\d{2}|\d{3,4})$/;
+
+// OpenAI text/chat models: gpt-*, o-series, chatgpt-*; keep base aliases only,
+// dropping dated snapshots and specialized/non-chat variants.
 const isOpenAiTextModel = (id: string): boolean =>
   /^(gpt-|o\d|chatgpt-)/i.test(id) &&
-  !/(audio|realtime|transcribe|tts|image|embedding|moderation|search|whisper|dall-e|babbage|davinci|instruct|vision-preview)/i.test(id);
+  !DATED_SUFFIX.test(id) &&
+  !/(audio|realtime|transcribe|tts|image|embedding|moderation|search|whisper|dall-e|babbage|davinci|instruct|codex|16k|vision-preview)/i.test(id);
 
 let cache: { at: number; models: Option[] } | null = null;
 const CACHE_MS = 10 * 60 * 1000;
@@ -35,8 +40,9 @@ const geminiModels = async (): Promise<Option[]> => {
     for await (const m of pager) {
       const name = (m.name || '').replace(/^models\//, '');
       if (!name.startsWith('gemini')) continue;
-      // Drop non-text variants (embeddings, tts, live/native-audio, image).
-      if (/(embedding|tts|aqa|audio|live|realtime|imagen|image|vision)/i.test(name)) continue;
+      // Drop non-chat variants and dated snapshots (keep base aliases).
+      if (/(embedding|tts|aqa|audio|live|realtime|imagen|image|vision|computer-use|robotics|customtools)/i.test(name)) continue;
+      if (DATED_SUFFIX.test(name)) continue;
       const actions = m.supportedActions || [];
       if (actions.length && !actions.includes('generateContent')) continue;
       out.push({ id: name, label: m.displayName || name, provider: 'gemini' });
