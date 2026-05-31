@@ -46,6 +46,7 @@ const IP_RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
   image: { limit: 20, windowMs: 60_000 }, // /api/avatar, /api/group-avatar
   voice: { limit: 20, windowMs: 60_000 }, // /api/live-token
   moderate: { limit: 200, windowMs: 60_000 }, // /api/moderate (cheap; called per message + reply)
+  summarize: { limit: 60, windowMs: 60_000 }, // /api/summarize (server-triggered for long chats)
 };
 
 // Core fixed-window consume for an arbitrary key. Returns false if exhausted.
@@ -559,10 +560,18 @@ export const addMessage = mutation({
       timestamp: Date.now(),
     });
 
-    // Update chat room's updatedAt
+    // Update chat room's updatedAt + denormalized message counter.
+    const nextCount = (room.messageCount ?? 0) + 1;
     await ctx.db.patch(args.chatRoomId, {
       updatedAt: Date.now(),
+      messageCount: nextCount,
     });
+
+    // For long chats, refresh the rolling summary periodically (cheap counter
+    // gate; the action itself no-ops if there isn't enough to summarize).
+    if (nextCount > 200 && (nextCount - 200) % 25 === 0) {
+      await ctx.scheduler.runAfter(0, internal.memory.maybeSummarize, { chatId: args.chatRoomId });
+    }
 
     // Kick off a link-preview fetch for each new URL (insert a pending row first
     // so the same URL isn't scheduled twice — this runs in a transaction).

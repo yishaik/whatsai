@@ -47,6 +47,14 @@ export default defineSchema({
     maxResponders: v.optional(v.number()),
     // Opaque token for a public read-only share link. Absent = not shared.
     shareId: v.optional(v.string()),
+    // Rolling memory for long chats: a running summary of older messages,
+    // injected as background context. `summaryUntil` is the timestamp of the
+    // newest message covered; `summaryAt` is when it was last refreshed.
+    summary: v.optional(v.string()),
+    summaryUntil: v.optional(v.number()),
+    summaryAt: v.optional(v.number()),
+    // Denormalized message counter (cheap trigger for summarization on long chats).
+    messageCount: v.optional(v.number()),
   })
     .index("by_owner", ["ownerId"])
     .index("by_share", ["shareId"]),

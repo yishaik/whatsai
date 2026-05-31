@@ -155,6 +155,7 @@ export const generatePersonaResponse = async (
   // vision input. The server fetches the bytes from these URLs.
   images: { url: string; mimeType: string }[] = [],
   temperature?: number,
+  summary?: string,
   signal?: AbortSignal
 ): Promise<PersonaResponsePayload> => {
   // Strip avatar fields to reduce payload size (avoids 413 errors)
@@ -172,6 +173,7 @@ export const generatePersonaResponse = async (
     model,
     images,
     temperature,
+    summary,
     timezone: userTimezone(),
   }, signal);
   const { text, reminders } = stripReminderTokens(payload.text ?? '');
@@ -192,6 +194,7 @@ export const streamPersonaResponse = async (
   images: { url: string; mimeType: string }[],
   onDelta: (fullText: string) => void,
   temperature?: number,
+  summary?: string,
   signal?: AbortSignal,
 ): Promise<PersonaResponsePayload> => {
   const strippedPersonasMap: { [id: string]: Omit<Persona, 'avatar'> } = {};
@@ -211,6 +214,7 @@ export const streamPersonaResponse = async (
       model,
       images,
       temperature,
+      summary,
       timezone: userTimezone(),
       stream: true,
     }),

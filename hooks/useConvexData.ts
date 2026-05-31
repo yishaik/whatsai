@@ -40,6 +40,7 @@ export interface ChatRoom {
   temperature?: number;
   maxResponders?: number;
   shareId?: string;
+  summary?: string;
 }
 
 // Hook to manage all data with Convex
@@ -116,6 +117,7 @@ export function useConvexData() {
       temperature: cr.temperature,
       maxResponders: cr.maxResponders,
       shareId: cr.shareId,
+      summary: cr.summary,
       messages: [], // Messages loaded separately
     }));
   }, [convexChatRooms]);
