@@ -10,6 +10,7 @@ const VoiceCallOverlay = lazy(() => import('./VoiceCallOverlay'));
 import { generatePersonaResponse, streamPersonaResponse } from '../services/geminiService';
 import { speak, stopSpeaking, ttsSupported } from '../services/speech';
 import { moderateText, describeCategories } from '../services/moderation';
+import { fetchSuggestions } from '../services/suggest';
 
 // v1 attachments: images only, capped in count and size.
 const MAX_ATTACHMENTS = 4;
@@ -96,6 +97,8 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
   const [moderating, setModerating] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const suggestAbortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -441,6 +444,29 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
 
   const isGenerating = typingPersonas.size > 0;
 
+  // Fetch suggested next messages when it's the user's turn (chat empty, or the
+  // last message is from a persona) and nothing is generating. Fails soft.
+  useEffect(() => {
+    if (!chatRoom || isGenerating) { setSuggestions([]); return; }
+    const msgs = chatRoom.messages;
+    const last = msgs[msgs.length - 1];
+    const userTurn = msgs.length === 0 || (last && last.authorId !== USER_ID);
+    if (!userTurn) { setSuggestions([]); return; }
+    suggestAbortRef.current?.abort();
+    const controller = new AbortController();
+    suggestAbortRef.current = controller;
+    const history = msgs.slice(-10).map((m) => ({
+      author: m.authorId === USER_ID ? 'User' : personasMap[m.authorId]?.name || 'Unknown',
+      text: m.text,
+    }));
+    const personaNames = chatPersonas.map((p) => p.name);
+    fetchSuggestions(chatRoom.topic, personaNames, history, controller.signal)
+      .then((s) => { if (!controller.signal.aborted) setSuggestions(s); })
+      .catch(() => {});
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatRoom?.id, chatRoom?.messages.length, isGenerating]);
+
   if (!chatRoom) {
     return (
       <div className="w-full md:w-2/3 lg:w-3/4 flex flex-col items-center justify-center text-center p-8 bg-chat-bg">
@@ -589,6 +615,20 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
         )}
         {attachError && (
           <p className="text-xs text-red-400 mb-2">{attachError}</p>
+        )}
+        {suggestions.length > 0 && !inputText.trim() && !isGenerating && pendingFiles.length === 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {suggestions.map((s, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => { setInputText(s); setSuggestions([]); }}
+                className="text-sm text-left bg-item-active-bg hover:bg-item-hover-bg text-text-primary rounded-2xl px-3 py-1.5 border border-item-hover-bg"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
         )}
         <form onSubmit={handleSendMessage} className="flex items-center gap-3">
           <input

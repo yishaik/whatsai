@@ -47,6 +47,7 @@ const IP_RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
   voice: { limit: 20, windowMs: 60_000 }, // /api/live-token
   moderate: { limit: 200, windowMs: 60_000 }, // /api/moderate (cheap; called per message + reply)
   summarize: { limit: 60, windowMs: 60_000 }, // /api/summarize (server-triggered for long chats)
+  suggest: { limit: 120, windowMs: 60_000 }, // /api/suggest (reply suggestions)
 };
 
 // Core fixed-window consume for an arbitrary key. Returns false if exhausted.
