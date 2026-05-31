@@ -27,6 +27,8 @@ const App: React.FC = () => {
     addChatRoom: addChatRoomToDb,
     updateChatRoom: updateChatRoomInDb,
     deleteChatRoom: deleteChatRoomFromDb,
+    createShareLink,
+    revokeShareLink,
     addMessage: addMessageToDb,
     claimResponseSlot,
     uploadAvatar,
@@ -271,6 +273,8 @@ const App: React.FC = () => {
         personas={personas}
         updateChatRoom={updateChatRoom}
         generateChatAvatar={generateChatAvatar}
+        onCreateShareLink={createShareLink}
+        onRevokeShareLink={revokeShareLink}
       />
     </div>
   );

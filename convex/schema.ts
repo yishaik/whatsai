@@ -42,7 +42,11 @@ export default defineSchema({
     model: v.optional(v.string()),
     temperature: v.optional(v.number()),
     maxResponders: v.optional(v.number()),
-  }).index("by_owner", ["ownerId"]),
+    // Opaque token for a public read-only share link. Absent = not shared.
+    shareId: v.optional(v.string()),
+  })
+    .index("by_owner", ["ownerId"])
+    .index("by_share", ["shareId"]),
 
   // Per-user preferences (e.g. the default model for persona replies).
   userSettings: defineTable({

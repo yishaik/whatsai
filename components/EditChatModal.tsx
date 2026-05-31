@@ -3,6 +3,7 @@ import { ChatRoom, Persona } from '../types';
 import { XMarkIcon, ArrowPathIcon } from './icons';
 import Avatar from './Avatar';
 import { useModels } from '../hooks/useModels';
+import { exportChatMarkdown, downloadText, slugify } from '../services/exportChat';
 
 interface EditChatModalProps {
   isOpen: boolean;
@@ -11,6 +12,8 @@ interface EditChatModalProps {
   personas: Persona[];
   updateChatRoom: (id: string, updates: Partial<ChatRoom>) => void;
   generateChatAvatar: (chatId: string) => Promise<void>;
+  onCreateShareLink: (chatId: string) => Promise<string>;
+  onRevokeShareLink: (chatId: string) => Promise<void>;
 }
 
 const EditChatModal: React.FC<EditChatModalProps> = ({ 
@@ -19,7 +22,9 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
   chatRoom, 
   personas, 
   updateChatRoom,
-  generateChatAvatar 
+  generateChatAvatar,
+  onCreateShareLink,
+  onRevokeShareLink,
 }) => {
   const [topic, setTopic] = useState('');
   const [selectedPersonaIds, setSelectedPersonaIds] = useState<Set<string>>(new Set());
@@ -28,6 +33,10 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
   const [model, setModel] = useState('');
   const [temperature, setTemperature] = useState(0.9);
   const [maxResponders, setMaxResponders] = useState(0);
+  // Share link state (kept local since the modal holds a snapshot of chatRoom).
+  const [shareId, setShareId] = useState<string | undefined>(undefined);
+  const [sharing, setSharing] = useState(false);
+  const [copied, setCopied] = useState(false);
   const models = useModels();
 
   useEffect(() => {
@@ -37,8 +46,51 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
       setModel(chatRoom.model ?? '');
       setTemperature(chatRoom.temperature ?? 0.9);
       setMaxResponders(chatRoom.maxResponders ?? 0);
+      setShareId(chatRoom.shareId);
+      setCopied(false);
     }
   }, [chatRoom]);
+
+  const shareUrl = shareId ? `${window.location.origin}/?share=${shareId}` : '';
+
+  const handleExport = () => {
+    if (!chatRoom) return;
+    const nameFor = (id: string) => personas.find((p) => p.id === id)?.name || 'Unknown';
+    const md = exportChatMarkdown(chatRoom.topic, chatRoom.messages, nameFor);
+    downloadText(`${slugify(chatRoom.topic)}.md`, md);
+  };
+
+  const handleCreateShare = async () => {
+    if (!chatRoom) return;
+    setSharing(true);
+    try {
+      setShareId(await onCreateShareLink(chatRoom.id));
+    } catch (err) {
+      console.error('Failed to create share link:', err);
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const handleRevokeShare = async () => {
+    if (!chatRoom) return;
+    setSharing(true);
+    try {
+      await onRevokeShareLink(chatRoom.id);
+      setShareId(undefined);
+    } catch (err) {
+      console.error('Failed to revoke share link:', err);
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard?.writeText(shareUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
 
   // Close on Escape
   useEffect(() => {
@@ -220,6 +272,52 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
                 </select>
                 <p className="text-xs text-text-secondary mt-1">Cap how many personas reply to each message (reduces noise & cost).</p>
               </div>
+            </div>
+
+            <div className="border-t border-item-hover-bg pt-5 space-y-3">
+              <h3 className="text-sm font-semibold text-text-primary">Share &amp; export</h3>
+
+              <button
+                type="button"
+                onClick={handleExport}
+                className="text-sm bg-item-active-bg hover:bg-item-hover-bg text-text-primary py-2 px-3 rounded-md transition"
+              >
+                Export as Markdown
+              </button>
+
+              {shareId ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-text-secondary">Anyone with this link can read this chat (read-only):</p>
+                  <div className="flex gap-2">
+                    <input
+                      readOnly
+                      value={shareUrl}
+                      onFocus={(e) => e.currentTarget.select()}
+                      className="flex-1 bg-item-active-bg border border-item-hover-bg text-text-primary rounded-md p-2 text-xs"
+                    />
+                    <button type="button" onClick={handleCopy} className="text-sm bg-accent-green text-white px-3 rounded-md hover:bg-opacity-90">
+                      {copied ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRevokeShare}
+                    disabled={sharing}
+                    className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+                  >
+                    Stop sharing
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleCreateShare}
+                  disabled={sharing}
+                  className="block text-sm bg-item-active-bg hover:bg-item-hover-bg text-text-primary py-2 px-3 rounded-md transition disabled:opacity-50"
+                >
+                  {sharing ? 'Creating…' : 'Create read-only share link'}
+                </button>
+              )}
             </div>
           </div>
 
