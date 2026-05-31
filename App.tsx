@@ -36,6 +36,8 @@ const App: React.FC = () => {
     reminders,
     scheduleReminder,
     cancelReminder,
+    usage,
+    recordUsage,
   } = useConvexData();
 
   const activeChatMessages = useChatMessages(activeChatId);
@@ -218,6 +220,7 @@ const App: React.FC = () => {
           onUploadFile={uploadFile}
           onGenerateImage={onGenerateImage}
           onScheduleReminder={scheduleReminder}
+          onRecordUsage={recordUsage}
           onClaimResponse={claimResponseSlot}
           onOpenReminders={() => setIsRemindersOpen(true)}
           onEditChat={() => activeChat && setEditingChatRoom(activeChat)}
@@ -241,6 +244,7 @@ const App: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         defaultModel={defaultModel}
         onSetDefaultModel={setDefaultModel}
+        usage={usage}
       />
 
       <RemindersModal

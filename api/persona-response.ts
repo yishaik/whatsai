@@ -236,12 +236,20 @@ Do not prefix your response with your name (e.g., don't write "${personaWithoutA
             messages,
             temperature,
             stream: true,
+            stream_options: { include_usage: true },
           });
+          let inputTokens = 0;
+          let outputTokens = 0;
           for await (const chunk of stream) {
             const delta = chunk.choices?.[0]?.delta?.content ?? '';
             if (delta) send({ delta });
+            if (chunk.usage) {
+              inputTokens = chunk.usage.prompt_tokens ?? 0;
+              outputTokens = chunk.usage.completion_tokens ?? 0;
+            }
           }
-          send({ done: true, sources: [] }); // OpenAI has no built-in web search
+          // OpenAI has no built-in web search.
+          send({ done: true, sources: [], usage: { provider: 'openai', model: requestedModel, inputTokens, outputTokens } });
         } catch (streamError) {
           console.error('OpenAI stream error:', streamError);
           send({ error: streamError instanceof Error ? streamError.message : 'stream failed' });
@@ -257,7 +265,12 @@ Do not prefix your response with your name (e.g., don't write "${personaWithoutA
         temperature,
       });
       const text = completion.choices?.[0]?.message?.content?.trim() ?? '';
-      return res.status(200).json({ text, sources: [] });
+      const u = completion.usage;
+      return res.status(200).json({
+        text,
+        sources: [],
+        usage: { provider: 'openai', model: requestedModel, inputTokens: u?.prompt_tokens ?? 0, outputTokens: u?.completion_tokens ?? 0 },
+      });
     }
 
     // ==================== GEMINI ====================
@@ -281,13 +294,19 @@ Do not prefix your response with your name (e.g., don't write "${personaWithoutA
       try {
         const stream = await ai.models.generateContentStream({ model: requestedModel, contents, config });
         let grounding: any = undefined;
+        let usageMeta: any = undefined;
         for await (const chunk of stream) {
           const delta = chunk.text ?? '';
           if (delta) send({ delta });
           const gm = chunk.candidates?.[0]?.groundingMetadata;
           if (gm) grounding = gm;
+          if (chunk.usageMetadata) usageMeta = chunk.usageMetadata;
         }
-        send({ done: true, sources: personaWithoutAvatar.canSearch ? extractSources(grounding) : [] });
+        send({
+          done: true,
+          sources: personaWithoutAvatar.canSearch ? extractSources(grounding) : [],
+          usage: { provider: 'gemini', model: requestedModel, inputTokens: usageMeta?.promptTokenCount ?? 0, outputTokens: usageMeta?.candidatesTokenCount ?? 0 },
+        });
       } catch (streamError) {
         console.error('Error streaming persona response:', streamError);
         send({ error: streamError instanceof Error ? streamError.message : 'stream failed' });
@@ -301,7 +320,12 @@ Do not prefix your response with your name (e.g., don't write "${personaWithoutA
     const responseText = response.text?.trim() ?? '';
     const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
     const sources = personaWithoutAvatar.canSearch ? extractSources(groundingMetadata) : [];
-    return res.status(200).json({ text: responseText, sources });
+    const um = response.usageMetadata;
+    return res.status(200).json({
+      text: responseText,
+      sources,
+      usage: { provider: 'gemini', model: requestedModel, inputTokens: um?.promptTokenCount ?? 0, outputTokens: um?.candidatesTokenCount ?? 0 },
+    });
   } catch (error) {
     console.error('Error generating persona response:', error);
     return res.status(500).json({

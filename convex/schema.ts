@@ -122,6 +122,20 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_chat", ["chatId"]),
 
+  // Per-user, per-model token usage (running totals), for the usage dashboard.
+  // One row per (userId, model); incremented after each reply.
+  usage: defineTable({
+    userId: v.id("users"),
+    model: v.string(),
+    provider: v.string(),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    requests: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_and_model", ["userId", "model"]),
+
   // Web Push subscriptions, so reminders can alert the user when the app is
   // closed. One row per browser/device endpoint; keys are the standard
   // PushSubscription fields. Pruned on 404/410 from the push service.

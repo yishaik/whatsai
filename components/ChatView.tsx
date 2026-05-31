@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
-import { ChatRoom, Persona, Message, Attachment, ReminderInput } from '../types';
+import { ChatRoom, Persona, Message, Attachment, ReminderInput, UsageInfo } from '../types';
 import { USER_ID } from '../constants';
 import MessageBubble from './MessageBubble';
 import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon, XMarkIcon, PhoneIcon, PhotoIcon, ClockIcon } from './icons';
@@ -24,6 +24,7 @@ interface ChatViewProps {
   onUploadFile: (file: File) => Promise<Attachment>;
   onGenerateImage: (prompt: string) => Promise<Attachment>;
   onScheduleReminder: (chatId: string, personaId: string, reminder: ReminderInput) => Promise<void>;
+  onRecordUsage: (usage: UsageInfo) => void;
   onClaimResponse: (chatId: string, triggerMessageId: string, personaId: string) => Promise<boolean>;
   onOpenReminders: () => void;
   onEditChat?: () => void;
@@ -79,7 +80,7 @@ const StreamingBubble: React.FC<{ persona: Persona; text: string }> = ({ persona
     </div>
 );
 
-const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, onSendMessage, onUploadFile, onGenerateImage, onScheduleReminder, onClaimResponse, onOpenReminders, onEditChat, onDeleteChat }) => {
+const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, onSendMessage, onUploadFile, onGenerateImage, onScheduleReminder, onRecordUsage, onClaimResponse, onOpenReminders, onEditChat, onDeleteChat }) => {
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
@@ -351,6 +352,9 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                 text: replyText,
                 sources: replySources,
             });
+            // Record token usage for this reply (tokens were spent regardless of
+            // whether the reply was withheld by moderation).
+            if (response.usage) onRecordUsage(response.usage);
             // Persist any reminders the persona scheduled in this reply. Deduped
             // server-side, so the multi-persona loop won't create copies. Skip if
             // the reply was withheld by moderation.
@@ -378,7 +382,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
             });
         }
     }
-  }, [chatRoom, personasMap, onSendMessage, onScheduleReminder, onClaimResponse, defaultModel]);
+  }, [chatRoom, personasMap, onSendMessage, onScheduleReminder, onRecordUsage, onClaimResponse, defaultModel]);
   
   useEffect(() => {
     if (chatRoom && chatRoom.messages.length > 0) {
