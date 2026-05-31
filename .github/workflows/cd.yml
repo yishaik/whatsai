@@ -3,6 +3,10 @@ name: Deploy Production
 on:
   push:
     branches: [main]
+    # Don't burn a production deploy on docs-only changes.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
 
 concurrency:
   group: production

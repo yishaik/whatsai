@@ -1,8 +1,11 @@
 name: PR Preview
 
+# Previews are opt-in to conserve Vercel deploys: add the "preview" label to a
+# PR (or push to an already-labeled PR) to get a deployed preview URL. Every PR
+# is still verified by the CI workflow (tsc + build) regardless of this label.
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [labeled, synchronize, reopened]
 
 concurrency:
   group: preview-${{ github.event.pull_request.number }}
@@ -10,6 +13,8 @@ concurrency:
 
 jobs:
   deploy-preview:
+    # Only run when the PR carries the "preview" label.
+    if: contains(github.event.pull_request.labels.*.name, 'preview')
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
