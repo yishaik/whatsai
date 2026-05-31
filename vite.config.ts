@@ -30,6 +30,9 @@ export default defineConfig({
         // Never serve the SPA shell for API calls (LLM streams, Convex, etc.).
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
+        // Pull in the Web Push handlers (push + notificationclick) without
+        // leaving the generateSW strategy.
+        importScripts: ['push-sw.js'],
       },
     }),
   ],

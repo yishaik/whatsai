@@ -115,6 +115,19 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_chat", ["chatId"]),
 
+  // Web Push subscriptions, so reminders can alert the user when the app is
+  // closed. One row per browser/device endpoint; keys are the standard
+  // PushSubscription fields. Pruned on 404/410 from the push service.
+  pushSubscriptions: defineTable({
+    userId: v.id("users"),
+    endpoint: v.string(),
+    p256dh: v.string(),
+    auth: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_endpoint", ["endpoint"]),
+
   // Atomic claims so only one client generates a given persona's reply to a
   // given user message (chats are shared/public — multiple clients observe the
   // same message and would otherwise each generate a duplicate response).

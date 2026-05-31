@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { XMarkIcon, ClockIcon, TrashIcon } from './icons';
 import Avatar from './Avatar';
+import { usePush } from '../hooks/usePush';
 import { Persona, ChatRoom, Reminder, ReminderRepeat } from '../types';
 
 interface RemindersModalProps {
@@ -36,6 +37,7 @@ const formatWhen = (ms: number): string => {
 
 const RemindersModal: React.FC<RemindersModalProps> = ({ isOpen, onClose, reminders, personasMap, chatRooms, onCancel }) => {
   const [cancelling, setCancelling] = useState<Set<string>>(new Set());
+  const push = usePush();
 
   useEffect(() => {
     if (!isOpen) return;
@@ -75,6 +77,33 @@ const RemindersModal: React.FC<RemindersModalProps> = ({ isOpen, onClose, remind
             <XMarkIcon className="h-6 w-6" />
           </button>
         </div>
+
+        {push.available && (
+          <div className="px-4 pt-3">
+            <div className="flex items-center justify-between gap-3 bg-item-active-bg rounded-lg p-3">
+              <div className="min-w-0">
+                <p className="text-sm text-text-primary">Push notifications</p>
+                <p className="text-xs text-text-secondary">
+                  {push.subscribed
+                    ? 'On — reminders alert you even when the app is closed.'
+                    : 'Get alerted even when the app is closed.'}
+                </p>
+                {push.error && <p className="text-xs text-red-400 mt-1">{push.error}</p>}
+              </div>
+              <button
+                onClick={() => (push.subscribed ? push.disable() : push.enable())}
+                disabled={push.busy}
+                className={`text-sm px-3 py-1.5 rounded-md flex-shrink-0 disabled:opacity-50 ${
+                  push.subscribed
+                    ? 'bg-item-hover-bg text-text-secondary hover:text-text-primary'
+                    : 'bg-accent-green text-white hover:bg-opacity-90'
+                }`}
+              >
+                {push.busy ? '…' : push.subscribed ? 'Turn off' : 'Enable'}
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="p-4 overflow-y-auto">
           {sorted.length === 0 ? (
