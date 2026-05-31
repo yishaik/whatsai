@@ -1,6 +1,13 @@
 import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
-import { providerForModel, DEFAULT_MODEL_ID } from '../services/models';
+
+// Provider detection is inlined (not imported from ../services/models) because
+// this serverless function runs as ESM and a cross-directory relative import
+// fails to resolve at runtime (ERR_MODULE_NOT_FOUND). The client keeps the full
+// registry; the server only needs default + provider routing.
+const DEFAULT_MODEL_ID = 'gemini-3.1-flash-lite-preview';
+const providerForModel = (id: string): 'openai' | 'gemini' =>
+  /^(gpt|o\d)/i.test(id) ? 'openai' : 'gemini';
 
 type Persona = {
   id: string;
