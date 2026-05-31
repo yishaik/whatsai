@@ -272,11 +272,16 @@ If — and ONLY if — the user clearly asks to be reminded of something or to r
 [[REMINDER]]{"text":"<message to post at that time>","when":"<absolute ISO 8601 datetime with timezone offset>","repeat":"none"}
 Set "repeat" to one of "none" (one-off), "hourly", "daily", "weekly", or "monthly". Compute "when" as the first occurrence, interpreting relative times ("in 10 minutes", "tomorrow at 9am") in the user's timezone. Never output this token unless the user actually requested a reminder, and never mention the token or its format in your reply.`;
 
+    const summaryText = typeof body.summary === 'string' ? body.summary.trim() : '';
+    const summaryBlock = summaryText
+      ? `\n\nBackground — summary of earlier parts of this conversation (before the messages shown below):\n${summaryText}`
+      : '';
+
     const systemInstruction = `You are in a group chat. The chat topic is: "${chatTopic}".
 Your persona is "${personaWithoutAvatar.name}". Your personality is: "${personaWithoutAvatar.prompt}".
 The other participants are: User${otherPersonas ? `, ${otherPersonas}` : ''}.
 You must respond as "${personaWithoutAvatar.name}". Your response must be in character.
-Do not prefix your response with your name (e.g., don't write "${personaWithoutAvatar.name}:"). Just provide the message content.${reminderInstruction}`;
+Do not prefix your response with your name (e.g., don't write "${personaWithoutAvatar.name}:"). Just provide the message content.${summaryBlock}${reminderInstruction}`;
 
     const imageNote = images.length
       ? 'The user attached the image(s) below with their latest message. Take them into account.\n\n'

@@ -81,4 +81,5 @@ export interface ChatRoom {
   temperature?: number;
   maxResponders?: number; // cap on participants replying per user message
   shareId?: string; // public read-only share token (absent = not shared)
+  summary?: string; // rolling memory of older messages (long chats)
 }

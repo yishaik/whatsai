@@ -262,6 +262,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     const chatTopic = chatRoom.topic;
     const chatModel = chatRoom.model;
     const chatTemperature = chatRoom.temperature;
+    const chatSummary = chatRoom.summary;
     const maxResponders = chatRoom.maxResponders;
     // Running history accumulates each persona's reply as it lands, so later
     // personas in this round react to earlier ones — a real group conversation
@@ -320,6 +321,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                         }
                     },
                     chatTemperature,
+                    chatSummary,
                     signal,
                 );
             } catch (streamError) {
@@ -327,7 +329,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                 // Streaming failed — fall back to the non-streaming endpoint so a
                 // flaky stream never costs us the reply.
                 console.warn("Streaming failed, falling back to non-streaming:", streamError);
-                response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, model, triggerImages, chatTemperature, signal);
+                response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, model, triggerImages, chatTemperature, chatSummary, signal);
             }
             if (signal.aborted) return;
             // Screen the persona's reply (fails open). Flagged output is replaced
