@@ -266,6 +266,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     const chatTemperature = chatRoom.temperature;
     const chatSummary = chatRoom.summary;
     const maxResponders = chatRoom.maxResponders;
+    const chatRiffRounds = chatRoom.riffRounds;
     // Running history accumulates each persona's reply as it lands, so later
     // personas in this round react to earlier ones — a real group conversation
     // rather than N monologues all answering the same stale snapshot.
@@ -297,21 +298,22 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     generationAbortRef.current = controller;
     const { signal } = controller;
 
-    for (const persona of responders) {
-        if (signal.aborted) return;
-
-        // Atomically claim this reply so that across all clients viewing this
-        // shared chat, only one generates it. Skip if another client owns it.
+    // One persona's turn: claim (cross-client dedupe), generate (streaming with
+    // a non-streaming fallback), moderate, post, record usage + reminders. Used
+    // by both the user-triggered round and the persona-to-persona riff rounds.
+    const runTurn = async (
+        persona: Persona,
+        triggerId: string,
+        images: { url: string; mimeType: string }[],
+    ) => {
         let won = false;
         try {
-            won = await onClaimResponse(chatId, lastMessage.id, persona.id);
+            won = await onClaimResponse(chatId, triggerId, persona.id);
         } catch (error) {
-            // Claim infra error: skip rather than risk a duplicate. The other
-            // client (if any) still handles it; otherwise the user can re-send.
+            // Claim infra error: skip rather than risk a duplicate.
             console.error("Failed to claim response slot for", persona.name, error);
         }
-        if (signal.aborted) return;
-        if (!won) continue;
+        if (signal.aborted || !won) return;
 
         // Model fallback chain: per-persona override → per-chat default → user default.
         const model = persona.model || chatModel || defaultModel;
@@ -320,9 +322,8 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
         try {
             let response: Awaited<ReturnType<typeof streamPersonaResponse>>;
             try {
-                // Stream tokens into a live bubble for this client.
                 response = await streamPersonaResponse(
-                    persona, chatTopic, runningHistory, personasInChat, personasMap, model, triggerImages,
+                    persona, chatTopic, runningHistory, personasInChat, personasMap, model, images,
                     (full) => {
                         if (!signal.aborted) {
                             setStreamingText(prev => ({ ...prev, [persona.id]: full }));
@@ -334,24 +335,20 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                 );
             } catch (streamError) {
                 if (signal.aborted) return;
-                // Streaming failed — fall back to the non-streaming endpoint so a
-                // flaky stream never costs us the reply.
+                // Streaming failed — fall back to the non-streaming endpoint.
                 console.warn("Streaming failed, falling back to non-streaming:", streamError);
-                response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, model, triggerImages, chatTemperature, chatSummary, signal);
+                response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, model, images, chatTemperature, chatSummary, signal);
             }
             if (signal.aborted) return;
             // Screen the persona's reply (fails open). Flagged output is replaced
-            // before it's persisted, so the stored/shared message — what other
-            // users in a public room see — is always the safe version.
+            // before it's persisted, so the stored/shared message is always safe.
             const outMod = await moderateText(response.text);
             if (signal.aborted) return;
             const replyText = outMod.flagged ? '⚠️ This reply was withheld (content policy).' : response.text;
             const replySources = outMod.flagged ? [] : response.sources;
-            // Make this reply visible to the next persona in the round. Convex's
-            // live query will reconcile the real message; this is only the local
-            // context fed to subsequent personas this round.
+            // Make this reply visible to the next persona in the round.
             runningHistory.push({
-                id: `pending-${lastMessage.id}-${persona.id}`,
+                id: `pending-${triggerId}-${persona.id}`,
                 authorId: persona.id,
                 text: replyText,
                 timestamp: lastMessage.timestamp + runningHistory.length,
@@ -362,12 +359,8 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                 text: replyText,
                 sources: replySources,
             });
-            // Record token usage for this reply (tokens were spent regardless of
-            // whether the reply was withheld by moderation).
+            // Tokens were spent regardless of whether the reply was withheld.
             if (response.usage) onRecordUsage(response.usage);
-            // Persist any reminders the persona scheduled in this reply. Deduped
-            // server-side, so the multi-persona loop won't create copies. Skip if
-            // the reply was withheld by moderation.
             if (!outMod.flagged) {
                 for (const reminder of response.reminders ?? []) {
                     onScheduleReminder(chatId, persona.id, reminder).catch((err) =>
@@ -390,6 +383,24 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                 newSet.delete(persona.id);
                 return newSet;
             });
+        }
+    };
+
+    // User-triggered round: the addressed/eligible responders reply in order.
+    for (const persona of responders) {
+        if (signal.aborted) return;
+        await runTurn(persona, lastMessage.id, triggerImages);
+    }
+
+    // Persona-to-persona riffing (opt-in per chat): extra rounds where every
+    // participant continues the conversation among themselves. Capped at 3, and
+    // aborts the moment the user sends again (re-trigger) or hits Stop. The
+    // posted messages are persona-authored, so they don't re-trigger this.
+    const riffRounds = Math.min(Math.max(chatRiffRounds ?? 0, 0), 3);
+    for (let round = 0; round < riffRounds; round++) {
+        for (const persona of personasInChat) {
+            if (signal.aborted) return;
+            await runTurn(persona, `riff:${lastMessage.id}:${round}`, []);
         }
     }
   }, [chatRoom, personasMap, onSendMessage, onScheduleReminder, onRecordUsage, onClaimResponse, defaultModel]);
@@ -421,6 +432,12 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
   const mentionMatches = mentionQuery !== null
     ? chatPersonas.filter((p) => p.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 5)
     : [];
+
+  const handleStop = () => {
+    generationAbortRef.current?.abort();
+    setTypingPersonas(new Set());
+    setStreamingText({});
+  };
 
   const isGenerating = typingPersonas.size > 0;
 
@@ -537,6 +554,17 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       </main>
 
       <footer className="p-3 bg-panel-header-bg">
+        {isGenerating && (
+          <div className="flex justify-center mb-2">
+            <button
+              type="button"
+              onClick={handleStop}
+              className="text-xs bg-item-active-bg hover:bg-item-hover-bg text-text-secondary hover:text-text-primary rounded-full px-3 py-1"
+            >
+              ■ Stop
+            </button>
+          </div>
+        )}
         {mentionMatches.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2">
             {mentionMatches.map((p) => (

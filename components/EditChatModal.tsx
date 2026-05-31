@@ -33,6 +33,7 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
   const [model, setModel] = useState('');
   const [temperature, setTemperature] = useState(0.9);
   const [maxResponders, setMaxResponders] = useState(0);
+  const [riffRounds, setRiffRounds] = useState(0);
   // Share link state (kept local since the modal holds a snapshot of chatRoom).
   const [shareId, setShareId] = useState<string | undefined>(undefined);
   const [sharing, setSharing] = useState(false);
@@ -46,6 +47,7 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
       setModel(chatRoom.model ?? '');
       setTemperature(chatRoom.temperature ?? 0.9);
       setMaxResponders(chatRoom.maxResponders ?? 0);
+      setRiffRounds(chatRoom.riffRounds ?? 0);
       setShareId(chatRoom.shareId);
       setCopied(false);
     }
@@ -125,6 +127,7 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
         model,
         temperature,
         maxResponders,
+        riffRounds,
       });
       onClose();
     }
@@ -271,6 +274,22 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
                   ))}
                 </select>
                 <p className="text-xs text-text-secondary mt-1">Cap how many personas reply to each message (reduces noise & cost).</p>
+              </div>
+
+              <div>
+                <label htmlFor="chat-riff" className="block text-sm font-medium text-text-secondary mb-1">Auto-conversation</label>
+                <select
+                  id="chat-riff"
+                  value={riffRounds}
+                  onChange={(e) => setRiffRounds(parseInt(e.target.value, 10))}
+                  className="w-full bg-item-active-bg border border-item-hover-bg text-text-primary rounded-md p-2 focus:ring-accent-green focus:border-accent-green"
+                >
+                  <option value={0}>Off</option>
+                  <option value={1}>1 extra round</option>
+                  <option value={2}>2 extra rounds</option>
+                  <option value={3}>3 extra rounds</option>
+                </select>
+                <p className="text-xs text-text-secondary mt-1">After your message, let the personas keep talking among themselves for N rounds (uses more tokens). Tap Stop to end early.</p>
               </div>
             </div>
 

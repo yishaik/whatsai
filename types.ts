@@ -80,6 +80,7 @@ export interface ChatRoom {
   model?: string; // chat-level default model (fallback between persona + user default)
   temperature?: number;
   maxResponders?: number; // cap on participants replying per user message
+  riffRounds?: number; // persona-to-persona auto-conversation rounds (0 = off)
   shareId?: string; // public read-only share token (absent = not shared)
   summary?: string; // rolling memory of older messages (long chats)
 }
