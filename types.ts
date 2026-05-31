@@ -5,6 +5,7 @@ export interface Persona {
   prompt: string;
   canSearch?: boolean;
   model?: string; // optional per-persona model override (registry id)
+  skills?: string[]; // enabled capability ids (see services/skills.ts)
 }
 
 export interface Source {
