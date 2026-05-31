@@ -202,6 +202,12 @@ export const generateAvatar = async (name: string, prompt: string): Promise<stri
   return image;
 };
 
+// Generate an image from a free-form prompt (in-chat image creation).
+export const generateImage = async (prompt: string): Promise<string> => {
+  const { image } = await postJson<AvatarPayload>('/api/generate-image', { prompt });
+  return image;
+};
+
 export const generateGroupChatAvatar = async (topic: string, personaNames: string[]): Promise<string> => {
   const { image } = await postJson<AvatarPayload>('/api/group-avatar', {
     topic,
