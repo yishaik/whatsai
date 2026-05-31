@@ -16,6 +16,14 @@ import { transcribeAudio } from '../services/transcribe';
 // v1 attachments: images only, capped in count and size.
 const MAX_ATTACHMENTS = 4;
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
+// Text-based document attachments: read client-side and folded into the message
+// as context. (PDF/binary parsing is a follow-up — needs pdfjs.)
+const MAX_DOCS = 3;
+const MAX_DOC_BYTES = 256 * 1024; // 256KB raw
+const MAX_DOC_CHARS = 20000; // per-file char cap fed to the model
+const DOC_EXT_RE = /\.(txt|md|markdown|csv|tsv|json|jsonl|log|xml|ya?ml|ini|toml|ts|tsx|js|jsx|mjs|cjs|py|rb|go|rs|java|kt|c|h|cpp|cc|cs|php|sh|bash|sql|html?|css|scss)$/i;
+const isTextDoc = (f: File): boolean =>
+  f.type.startsWith('text/') || f.type === 'application/json' || DOC_EXT_RE.test(f.name);
 
 interface ChatViewProps {
   chatRoom: ChatRoom | null;
@@ -93,6 +101,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
   const canSpeak = ttsSupported();
   const [viewingSourceUrl, setViewingSourceUrl] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingDocs, setPendingDocs] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
   const [moderating, setModerating] = useState(false);
@@ -125,6 +134,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       setStreamingText({});
       setFailedPersonas([]);
       setPendingFiles([]);
+      setPendingDocs([]);
       setAttachError(null);
       setGeneratingImage(false);
       stopSpeaking();
@@ -170,22 +180,42 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     const files = Array.from(e.target.files ?? []);
     e.target.value = ''; // allow re-picking the same file later
     const errors: string[] = [];
-    const accepted: File[] = [];
+    const acceptedImages: File[] = [];
+    const acceptedDocs: File[] = [];
     for (const f of files) {
-      if (!f.type.startsWith('image/')) { errors.push(`${f.name}: only images are supported`); continue; }
-      if (f.size > MAX_FILE_BYTES) { errors.push(`${f.name}: over 10MB`); continue; }
-      accepted.push(f);
+      if (f.type.startsWith('image/')) {
+        if (f.size > MAX_FILE_BYTES) { errors.push(`${f.name}: over 10MB`); continue; }
+        acceptedImages.push(f);
+      } else if (isTextDoc(f)) {
+        if (f.size > MAX_DOC_BYTES) { errors.push(`${f.name}: text file over 256KB`); continue; }
+        acceptedDocs.push(f);
+      } else {
+        errors.push(`${f.name}: unsupported (images and text documents only)`);
+      }
     }
-    setPendingFiles(prev => {
-      const room = MAX_ATTACHMENTS - prev.length;
-      if (accepted.length > room) errors.push(`Up to ${MAX_ATTACHMENTS} images per message`);
-      return [...prev, ...accepted.slice(0, Math.max(0, room))];
-    });
+    if (acceptedImages.length) {
+      setPendingFiles(prev => {
+        const room = MAX_ATTACHMENTS - prev.length;
+        if (acceptedImages.length > room) errors.push(`Up to ${MAX_ATTACHMENTS} images per message`);
+        return [...prev, ...acceptedImages.slice(0, Math.max(0, room))];
+      });
+    }
+    if (acceptedDocs.length) {
+      setPendingDocs(prev => {
+        const room = MAX_DOCS - prev.length;
+        if (acceptedDocs.length > room) errors.push(`Up to ${MAX_DOCS} documents per message`);
+        return [...prev, ...acceptedDocs.slice(0, Math.max(0, room))];
+      });
+    }
     setAttachError(errors.length ? errors.join(' · ') : null);
   };
 
   const removePendingFile = (index: number) => {
     setPendingFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const removePendingDoc = (index: number) => {
+    setPendingDocs(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleGenerateImage = async () => {
@@ -214,7 +244,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     e.preventDefault();
     const text = inputText.trim();
     if (!chatRoom || typingPersonas.size !== 0 || !authReady || uploading || moderating) return;
-    if (!text && pendingFiles.length === 0) return;
+    if (!text && pendingFiles.length === 0 && pendingDocs.length === 0) return;
 
     setFailedPersonas([]);
 
@@ -245,10 +275,26 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       setUploading(false);
     }
 
+    // Fold attached text documents into the message as context for the model.
+    let finalText = text;
+    if (pendingDocs.length > 0) {
+      const parts: string[] = [];
+      for (const doc of pendingDocs) {
+        try {
+          const raw = await doc.text();
+          const clipped = raw.slice(0, MAX_DOC_CHARS);
+          parts.push(`\n\n[Attached document: ${doc.name}]\n${clipped}${raw.length > MAX_DOC_CHARS ? '\n…(truncated)' : ''}`);
+        } catch {
+          // skip unreadable doc
+        }
+      }
+      if (parts.length) finalText = (text + parts.join('')).trim();
+    }
+
     try {
       await onSendMessage(chatRoom.id, {
         authorId: USER_ID,
-        text,
+        text: finalText,
         sources: [],
         attachments: attachments.length ? attachments : undefined,
       });
@@ -259,6 +305,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     }
     setInputText('');
     setPendingFiles([]);
+    setPendingDocs([]);
     setAttachError(null);
     setMentionQuery(null);
   };
@@ -661,6 +708,19 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
             ))}
           </div>
         )}
+        {pendingDocs.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {pendingDocs.map((doc, i) => (
+              <span key={`${doc.name}-${i}`} className="flex items-center gap-1.5 bg-item-active-bg rounded-md pl-2 pr-1 py-1 text-xs text-text-primary">
+                <PaperClipIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="max-w-[10rem] truncate">{doc.name}</span>
+                <button type="button" onClick={() => removePendingDoc(i)} className="text-icon-default hover:text-red-500 p-0.5" title="Remove">
+                  <XMarkIcon className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         {attachError && (
           <p className="text-xs text-red-400 mb-2">{attachError}</p>
         )}
@@ -682,7 +742,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,text/*,.md,.markdown,.csv,.tsv,.json,.jsonl,.log,.xml,.yaml,.yml,.ini,.toml,.ts,.tsx,.js,.jsx,.py,.rb,.go,.rs,.java,.c,.h,.cpp,.cs,.php,.sh,.sql,.html,.css"
             multiple
             onChange={handleFilesSelected}
             className="hidden"
@@ -706,8 +766,8 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isGenerating || !authReady || uploading || generatingImage || pendingFiles.length >= MAX_ATTACHMENTS}
-            title="Attach images"
+            disabled={isGenerating || !authReady || uploading || generatingImage || (pendingFiles.length >= MAX_ATTACHMENTS && pendingDocs.length >= MAX_DOCS)}
+            title="Attach images or text documents"
             className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <PaperClipIcon className="h-6 w-6" />
@@ -738,7 +798,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
           />
           <button
             type="submit"
-            disabled={(!inputText.trim() && pendingFiles.length === 0) || isGenerating || !authReady || uploading || generatingImage || moderating}
+            disabled={(!inputText.trim() && pendingFiles.length === 0 && pendingDocs.length === 0) || isGenerating || !authReady || uploading || generatingImage || moderating}
             className={`rounded-full p-3 text-white transition flex-shrink-0 ${
               isGenerating || uploading || moderating
                 ? 'bg-gray-500 cursor-not-allowed'
