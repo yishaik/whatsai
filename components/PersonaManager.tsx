@@ -4,6 +4,7 @@ import { XMarkIcon, PencilIcon, MagnifyingGlassIcon, ArrowPathIcon, TrashIcon } 
 import Avatar from './Avatar';
 import { findModelLabel, providerForModel } from '../services/models';
 import { useModels } from '../hooks/useModels';
+import { SKILLS } from '../services/skills';
 
 interface PersonaManagerProps {
   isOpen: boolean;
@@ -20,8 +21,14 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
   const models = useModels();
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [canSearch, setCanSearch] = useState(false);
+  const [skills, setSkills] = useState<Set<string>>(new Set());
   const [model, setModel] = useState(''); // '' = use the default model
+  const toggleSkill = (id: string) =>
+    setSkills((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
   const [isCreating, setIsCreating] = useState(false);
   const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
   const [regeneratingAvatars, setRegeneratingAvatars] = useState<Set<string>>(new Set());
@@ -43,7 +50,8 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
     setEditingPersonaId(persona.id);
     setName(persona.name);
     setPrompt(persona.prompt);
-    setCanSearch(persona.canSearch || false);
+    // Back-compat: a legacy canSearch persona maps to the web_search skill.
+    setSkills(new Set(persona.skills ?? (persona.canSearch ? ['web_search'] : [])));
     setModel(persona.model || '');
   };
 
@@ -51,14 +59,21 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
     setEditingPersonaId(null);
     setName('');
     setPrompt('');
-    setCanSearch(false);
+    setSkills(new Set());
     setModel('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim() && prompt.trim()) {
-      const personaData = { name: name.trim(), prompt: prompt.trim(), canSearch, model: model || undefined };
+      const skillList = Array.from(skills);
+      const personaData = {
+        name: name.trim(),
+        prompt: prompt.trim(),
+        canSearch: skills.has('web_search'), // mirror for back-compat
+        skills: skillList,
+        model: model || undefined,
+      };
       if (editingPersonaId) {
         updatePersona(editingPersonaId, personaData);
         handleCancelEdit();
@@ -72,7 +87,7 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
           }
           setName('');
           setPrompt('');
-          setCanSearch(false);
+          setSkills(new Set());
           setModel('');
         } catch (criticalError) {
           console.error("A critical error occurred while adding a persona:", criticalError);
@@ -147,18 +162,30 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
                   disabled={isCreating}
                 />
               </div>
-              <div className="flex items-center gap-3">
-                 <input
-                    id="persona-search"
-                    type="checkbox"
-                    checked={canSearch}
-                    onChange={(e) => setCanSearch(e.target.checked)}
-                    disabled={isCreating}
-                    className="h-4 w-4 rounded border-item-hover-bg bg-item-active-bg text-accent-blue focus:ring-accent-blue"
-                  />
-                  <label htmlFor="persona-search" className="text-sm text-text-secondary">
-                    Enable Internet Search (provides access to real-time information)
-                  </label>
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-2">Skills</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {SKILLS.map((s) => (
+                    <label
+                      key={s.id}
+                      className={`flex items-start gap-2 p-2 rounded-md cursor-pointer border ${
+                        skills.has(s.id) ? 'border-accent-green bg-accent-green/10' : 'border-item-hover-bg bg-item-active-bg'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={skills.has(s.id)}
+                        onChange={() => toggleSkill(s.id)}
+                        disabled={isCreating}
+                        className="mt-0.5 h-4 w-4 rounded border-item-hover-bg bg-item-active-bg text-accent-green focus:ring-accent-green"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm text-text-primary">{s.label}</span>
+                        <span className="block text-xs text-text-secondary">{s.description}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
               </div>
               <div>
                 <label htmlFor="persona-model" className="block text-sm font-medium text-text-secondary mb-1">Model</label>
@@ -174,8 +201,8 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
                     <option key={m.id} value={m.id}>{m.label}</option>
                   ))}
                 </select>
-                {canSearch && model && providerForModel(model) === 'openai' && (
-                  <p className="text-xs text-yellow-500/80 mt-1">Note: internet search only works on Gemini models; it'll be ignored on GPT.</p>
+                {skills.has('web_search') && model && providerForModel(model) === 'openai' && (
+                  <p className="text-xs text-yellow-500/80 mt-1">Note: web search only works on Gemini models; it'll be ignored on GPT.</p>
                 )}
               </div>
               <div className="flex justify-end gap-2">
@@ -230,7 +257,12 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
                                 <div className="min-w-0">
                                     <div className="flex items-center gap-2">
                                       <p className="font-bold text-text-primary truncate">{p.name}</p>
-                                      {p.canSearch && <MagnifyingGlassIcon className="h-4 w-4 text-accent-blue flex-shrink-0" aria-label="Internet search enabled" />}
+                                      {(p.skills?.includes('web_search') || p.canSearch) && <MagnifyingGlassIcon className="h-4 w-4 text-accent-blue flex-shrink-0" aria-label="Web search enabled" />}
+                                      {(p.skills?.filter((s) => s !== 'web_search').length ?? 0) > 0 && (
+                                        <span className="text-[10px] uppercase tracking-wide bg-panel-bg text-text-secondary px-1.5 py-0.5 rounded flex-shrink-0">
+                                          {p.skills!.filter((s) => s !== 'web_search').length} skill{p.skills!.filter((s) => s !== 'web_search').length > 1 ? 's' : ''}
+                                        </span>
+                                      )}
                                       {p.model && (
                                         <span className="text-[10px] uppercase tracking-wide bg-panel-bg text-text-secondary px-1.5 py-0.5 rounded flex-shrink-0">
                                           {findModelLabel(models, p.model)}

@@ -18,6 +18,9 @@ export default defineSchema({
     // Optional per-persona model override (id from the shared model registry).
     // When unset, the user's default model is used.
     model: v.optional(v.string()),
+    // Enabled capability ids (e.g. "web_search", "fetch_url", "calculate").
+    // `canSearch` is kept for back-compat and mirrors the "web_search" skill.
+    skills: v.optional(v.array(v.string())),
     createdAt: v.number(),
   }),
 

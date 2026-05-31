@@ -206,6 +206,7 @@ export const createPersona = mutation({
     prompt: v.string(),
     canSearch: v.boolean(),
     model: v.optional(v.string()),
+    skills: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const personaId = await ctx.db.insert("personas", {
@@ -226,6 +227,7 @@ export const updatePersona = mutation({
     prompt: v.optional(v.string()),
     canSearch: v.optional(v.boolean()),
     model: v.optional(v.string()),
+    skills: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;

@@ -15,6 +15,7 @@ export interface Persona {
   prompt: string;
   canSearch?: boolean;
   model?: string;
+  skills?: string[];
 }
 
 export interface Message {
@@ -98,6 +99,7 @@ export function useConvexData() {
       prompt: p.prompt,
       canSearch: p.canSearch,
       model: p.model,
+      skills: p.skills,
     }));
   }, [convexPersonas]);
 
@@ -140,6 +142,7 @@ export function useConvexData() {
       prompt: personaData.prompt,
       canSearch: personaData.canSearch || false,
       model: personaData.model,
+      skills: personaData.skills,
     });
     return id;
   };
@@ -157,6 +160,7 @@ export function useConvexData() {
       prompt: updates.prompt,
       canSearch: updates.canSearch,
       model: updates.model,
+      skills: updates.skills,
     });
   };
 

@@ -93,6 +93,7 @@ const App: React.FC = () => {
       prompt: personaData.prompt,
       canSearch: personaData.canSearch,
       model: personaData.model,
+      skills: personaData.skills,
       avatar,
       avatarStorageId,
     });
