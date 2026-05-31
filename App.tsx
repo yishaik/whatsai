@@ -8,6 +8,7 @@ import ChatView from './components/ChatView';
 import PersonaManager from './components/PersonaManager';
 import CreateChatModal from './components/CreateChatModal';
 import EditChatModal from './components/EditChatModal';
+import SettingsModal from './components/SettingsModal';
 import { generateAvatar, generateGroupChatAvatar } from './services/geminiService';
 import { DEFAULT_AVATAR } from './data/defaultPersonas';
 import { Bars3Icon } from './components/icons';
@@ -47,6 +48,7 @@ const App: React.FC = () => {
 
   const [isPersonaManagerOpen, setIsPersonaManagerOpen] = useState(false);
   const [isCreateChatOpen, setIsCreateChatOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [editingChatRoom, setEditingChatRoom] = useState<ChatRoom | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -183,6 +185,7 @@ const App: React.FC = () => {
           setActiveChatId={setActiveChatId}
           onNewChat={() => setIsCreateChatOpen(true)}
           onManagePersonas={() => setIsPersonaManagerOpen(true)}
+          onOpenSettings={() => setIsSettingsOpen(true)}
           onDeleteChat={deleteChatRoom}
           isMobileOpen={isSidebarOpen}
           onMobileClose={() => setIsSidebarOpen(false)}
@@ -209,6 +212,12 @@ const App: React.FC = () => {
         updatePersona={updatePersona}
         regenerateAvatar={regeneratePersonaAvatar}
         deletePersona={deletePersona}
+        defaultModel={defaultModel}
+      />
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
         defaultModel={defaultModel}
         onSetDefaultModel={setDefaultModel}
       />

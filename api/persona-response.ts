@@ -7,7 +7,7 @@ import OpenAI from 'openai';
 // registry; the server only needs default + provider routing.
 const DEFAULT_MODEL_ID = 'gemini-3.1-flash-lite-preview';
 const providerForModel = (id: string): 'openai' | 'gemini' =>
-  /^(gpt|o\d)/i.test(id) ? 'openai' : 'gemini';
+  /^(gpt|o\d|chatgpt)/i.test(id) ? 'openai' : 'gemini';
 
 type Persona = {
   id: string;
