@@ -39,6 +39,7 @@ export interface ChatRoom {
   model?: string;
   temperature?: number;
   maxResponders?: number;
+  riffRounds?: number;
   shareId?: string;
   summary?: string;
 }
@@ -116,6 +117,7 @@ export function useConvexData() {
       model: cr.model,
       temperature: cr.temperature,
       maxResponders: cr.maxResponders,
+      riffRounds: cr.riffRounds,
       shareId: cr.shareId,
       summary: cr.summary,
       messages: [], // Messages loaded separately

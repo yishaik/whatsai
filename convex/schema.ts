@@ -45,6 +45,8 @@ export default defineSchema({
     model: v.optional(v.string()),
     temperature: v.optional(v.number()),
     maxResponders: v.optional(v.number()),
+    // Persona-to-persona auto-conversation rounds after a user message (0 = off).
+    riffRounds: v.optional(v.number()),
     // Opaque token for a public read-only share link. Absent = not shared.
     shareId: v.optional(v.string()),
     // Rolling memory for long chats: a running summary of older messages,
