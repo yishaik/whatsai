@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 
 import { ChatRoom, Persona, Message, Attachment, ReminderInput, UsageInfo } from '../types';
 import { USER_ID } from '../constants';
 import MessageBubble from './MessageBubble';
-import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon, XMarkIcon, PhoneIcon, PhotoIcon, ClockIcon } from './icons';
+import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon, XMarkIcon, PhoneIcon, PhotoIcon, ClockIcon, MicrophoneIcon } from './icons';
 import Avatar from './Avatar';
 import SourceViewerModal from './SourceViewerModal';
 // Lazy so @google/genai (the Live SDK) only loads when a call actually starts.
@@ -11,6 +11,7 @@ import { generatePersonaResponse, streamPersonaResponse } from '../services/gemi
 import { speak, stopSpeaking, ttsSupported } from '../services/speech';
 import { moderateText, describeCategories } from '../services/moderation';
 import { fetchSuggestions } from '../services/suggest';
+import { transcribeAudio } from '../services/transcribe';
 
 // v1 attachments: images only, capped in count and size.
 const MAX_ATTACHMENTS = 4;
@@ -99,6 +100,10 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const suggestAbortRef = useRef<AbortController | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -134,6 +139,9 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     return () => {
       generationAbortRef.current?.abort();
       stopSpeaking();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
     };
   }, []);
 
@@ -436,6 +444,46 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     ? chatPersonas.filter((p) => p.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 5)
     : [];
 
+  // Record a voice message, transcribe it (OpenAI whisper), and append the text
+  // to the composer. Toggling while recording stops and transcribes.
+  const handleMicClick = async () => {
+    if (recording) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setAttachError('Voice recording is not supported on this device.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      mediaRecorderRef.current = mr;
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setRecording(false);
+        const blob = new Blob(audioChunksRef.current, { type: mr.mimeType || 'audio/webm' });
+        if (blob.size === 0) return;
+        setTranscribing(true);
+        try {
+          const text = await transcribeAudio(blob);
+          if (text) setInputText((prev) => (prev ? prev + ' ' : '') + text);
+        } catch (err) {
+          setAttachError(`Transcription failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          setTranscribing(false);
+        }
+      };
+      mr.start();
+      setRecording(true);
+      setAttachError(null);
+    } catch {
+      setAttachError('Microphone permission was denied.');
+    }
+  };
+
   const handleStop = () => {
     generationAbortRef.current?.abort();
     setTypingPersonas(new Set());
@@ -639,6 +687,22 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
             onChange={handleFilesSelected}
             className="hidden"
           />
+          <button
+            type="button"
+            onClick={handleMicClick}
+            disabled={isGenerating || !authReady || uploading || generatingImage || transcribing || moderating}
+            title={recording ? 'Stop recording' : 'Record a voice message'}
+            className={`p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${recording ? 'text-red-500 animate-pulse' : 'text-icon-default hover:text-icon-strong'}`}
+          >
+            {transcribing ? (
+              <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+              </svg>
+            ) : (
+              <MicrophoneIcon className="h-6 w-6" />
+            )}
+          </button>
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
