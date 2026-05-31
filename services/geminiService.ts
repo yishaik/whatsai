@@ -1,4 +1,4 @@
-import type { Persona, Message, Source, ReminderInput } from '../types';
+import type { Persona, Message, Source, ReminderInput, UsageInfo } from '../types';
 
 type PersonaResponsePayload = {
   text: string;
@@ -6,6 +6,8 @@ type PersonaResponsePayload = {
   // Reminders the persona scheduled in this reply (parsed from a [[REMINDER]]
   // token in the model output). Empty unless the user asked for a reminder.
   reminders: ReminderInput[];
+  // Token usage for this reply, when the endpoint reports it.
+  usage?: UsageInfo;
 };
 
 const REPEATS = ['none', 'hourly', 'daily', 'weekly', 'monthly'] as const;
@@ -161,7 +163,7 @@ export const generatePersonaResponse = async (
     strippedPersonasMap[id] = stripAvatar(p);
   }
 
-  const payload = await postJson<{ text: string; sources: Source[] }>('/api/persona-response', {
+  const payload = await postJson<{ text: string; sources: Source[]; usage?: UsageInfo }>('/api/persona-response', {
     persona: stripAvatar(persona),
     chatTopic,
     history,
@@ -173,7 +175,7 @@ export const generatePersonaResponse = async (
     timezone: userTimezone(),
   }, signal);
   const { text, reminders } = stripReminderTokens(payload.text ?? '');
-  return { text, sources: payload.sources ?? [], reminders };
+  return { text, sources: payload.sources ?? [], reminders, usage: payload.usage };
 };
 
 // Streaming variant: posts with `stream: true`, reads Server-Sent Events, and
@@ -224,6 +226,7 @@ export const streamPersonaResponse = async (
   let buffer = '';
   let fullText = '';
   let sources: Source[] = [];
+  let usage: UsageInfo | undefined;
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -248,12 +251,15 @@ export const streamPersonaResponse = async (
         fullText += payload.delta;
         onDelta(stripForDisplay(fullText));
       }
-      if (payload.done) sources = payload.sources ?? [];
+      if (payload.done) {
+        sources = payload.sources ?? [];
+        usage = payload.usage;
+      }
     }
   }
 
   const { text, reminders } = stripReminderTokens(fullText.trim());
-  return { text, sources, reminders };
+  return { text, sources, reminders, usage };
 };
 
 export const generateAvatar = async (name: string, prompt: string): Promise<string> => {

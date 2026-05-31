@@ -12,6 +12,23 @@ export interface Source {
   uri: string;
 }
 
+// Token usage reported by the persona-response endpoint for a single reply.
+export interface UsageInfo {
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+// Aggregated per-model usage row for the usage dashboard.
+export interface UsageRow {
+  model: string;
+  provider: string;
+  inputTokens: number;
+  outputTokens: number;
+  requests: number;
+}
+
 export type ReminderRepeat = 'none' | 'hourly' | 'daily' | 'weekly' | 'monthly';
 
 // A reminder parsed from a persona reply, before it's persisted. `when` is an

@@ -15,6 +15,7 @@ import type * as links from "../links.js";
 import type * as push from "../push.js";
 import type * as pushSubscriptions from "../pushSubscriptions.js";
 import type * as reminders from "../reminders.js";
+import type * as usage from "../usage.js";
 
 import type {
   ApiFromModules,
@@ -30,6 +31,7 @@ declare const fullApi: ApiFromModules<{
   push: typeof push;
   pushSubscriptions: typeof pushSubscriptions;
   reminders: typeof reminders;
+  usage: typeof usage;
 }>;
 
 /**

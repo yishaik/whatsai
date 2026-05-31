@@ -2,10 +2,10 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { Id } from "../convex/_generated/dataModel";
 import { useState, useMemo } from "react";
-import { Attachment, ReminderInput, Reminder } from "../types";
+import { Attachment, ReminderInput, Reminder, UsageInfo, UsageRow } from "../types";
 import { DEFAULT_MODEL_ID } from "../services/models";
 
-export type { Attachment, Reminder };
+export type { Attachment, Reminder, UsageRow };
 
 // Types matching the existing app types
 export interface Persona {
@@ -81,6 +81,10 @@ export function useConvexData() {
   }));
   const scheduleReminderMutation = useMutation(api.reminders.scheduleReminder);
   const cancelReminderMutation = useMutation(api.reminders.cancelReminder);
+
+  // Usage
+  const usage: UsageRow[] = (useQuery(api.usage.getMyUsage) || []) as UsageRow[];
+  const recordUsageMutation = useMutation(api.usage.recordUsage);
 
   // Convert Convex data to app format
   const personas: Persona[] = useMemo(() => {
@@ -273,6 +277,16 @@ export function useConvexData() {
     await cancelReminderMutation({ id: id as Id<"reminders"> });
   };
 
+  // Record token usage for a reply (fire-and-forget; never blocks the chat).
+  const recordUsage = (info: UsageInfo): void => {
+    void recordUsageMutation({
+      model: info.model,
+      provider: info.provider,
+      inputTokens: info.inputTokens,
+      outputTokens: info.outputTokens,
+    }).catch((err) => console.error("Failed to record usage:", err));
+  };
+
   // Atomically claim the right to generate a persona's reply to a user message.
   // Returns true if this client should generate the response.
   const claimResponseSlot = async (
@@ -322,5 +336,9 @@ export function useConvexData() {
     reminders,
     scheduleReminder,
     cancelReminder,
+
+    // Usage
+    usage,
+    recordUsage,
   };
 }
