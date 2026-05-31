@@ -12,6 +12,26 @@ export interface Source {
   uri: string;
 }
 
+export type ReminderRepeat = 'none' | 'hourly' | 'daily' | 'weekly' | 'monthly';
+
+// A reminder parsed from a persona reply, before it's persisted. `when` is an
+// absolute ISO 8601 datetime; the Convex mutation resolves it to an epoch.
+export interface ReminderInput {
+  text: string;
+  when: string;
+  repeat: ReminderRepeat;
+}
+
+// A persisted, active reminder as listed for management.
+export interface Reminder {
+  id: string;
+  chatId: string;
+  personaId: string;
+  text: string;
+  nextRunAt: number;
+  repeat: ReminderRepeat;
+}
+
 export interface Attachment {
   storageId: string;
   name: string;

@@ -91,6 +91,30 @@ export default defineSchema({
     fetchedAt: v.number(),
   }).index("by_url", ["url"]),
 
+  // User-scheduled reminders / recurring messages. A reminder is delivered by
+  // posting `text` into `chatId` as `personaId` at `nextRunAt`; recurring ones
+  // re-schedule themselves after each fire. `scheduledFnId` is the pending
+  // Convex scheduled-function id so it can be cancelled.
+  reminders: defineTable({
+    userId: v.id("users"),
+    chatId: v.id("chatRooms"),
+    personaId: v.string(), // delivering persona (authorId on the posted message)
+    text: v.string(),
+    nextRunAt: v.number(), // epoch ms of the next (or only) firing
+    repeat: v.union(
+      v.literal("none"),
+      v.literal("hourly"),
+      v.literal("daily"),
+      v.literal("weekly"),
+      v.literal("monthly"),
+    ),
+    active: v.boolean(),
+    scheduledFnId: v.optional(v.id("_scheduled_functions")),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_chat", ["chatId"]),
+
   // Atomic claims so only one client generates a given persona's reply to a
   // given user message (chats are shared/public — multiple clients observe the
   // same message and would otherwise each generate a duplicate response).

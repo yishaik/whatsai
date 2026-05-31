@@ -396,6 +396,16 @@ export const deleteChatRoom = mutation({
       await ctx.db.delete(claim._id);
     }
 
+    // Cancel and remove any reminders scheduled into this chat.
+    const reminders = await ctx.db
+      .query("reminders")
+      .withIndex("by_chat", (q) => q.eq("chatId", args.id))
+      .collect();
+    for (const reminder of reminders) {
+      if (reminder.scheduledFnId) await ctx.scheduler.cancel(reminder.scheduledFnId);
+      await ctx.db.delete(reminder._id);
+    }
+
     // Delete the chat room (and its stored avatar, if any)
     if (target.avatarStorageId) {
       await ctx.storage.delete(target.avatarStorageId);
