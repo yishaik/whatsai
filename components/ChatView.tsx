@@ -12,6 +12,8 @@ import { speak, stopSpeaking, ttsSupported } from '../services/speech';
 import { moderateText, describeCategories } from '../services/moderation';
 import { fetchSuggestions } from '../services/suggest';
 import { transcribeAudio } from '../services/transcribe';
+import { isSameDay } from '../services/time';
+import DateSeparator from './DateSeparator';
 
 // v1 attachments: images only, capped in count and size.
 const MAX_ATTACHMENTS = 4;
@@ -699,20 +701,26 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       </header>
 
       <main className="flex-1 overflow-y-auto p-3 md:p-6 space-y-3 md:space-y-4">
-        {chatRoom.messages.map(msg => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            persona={msg.authorId !== USER_ID ? personasMap[msg.authorId] : null}
-            isOwnMessage={msg.authorId === USER_ID}
-            onSourceClick={setViewingSourceUrl}
-            canSpeak={canSpeak}
-            isSpeaking={speakingId === msg.id}
-            onToggleSpeak={() => handleToggleSpeak(msg)}
-            onRegenerate={msg.authorId !== USER_ID ? () => handleRegenerate(msg) : undefined}
-            canRegenerate={!isGenerating && authReady}
-          />
-        ))}
+        {chatRoom.messages.map((msg, i) => {
+          const prev = i > 0 ? chatRoom.messages[i - 1] : null;
+          const showSeparator = !prev || !isSameDay(prev.timestamp, msg.timestamp);
+          return (
+            <React.Fragment key={msg.id}>
+              {showSeparator && <DateSeparator ts={msg.timestamp} />}
+              <MessageBubble
+                message={msg}
+                persona={msg.authorId !== USER_ID ? personasMap[msg.authorId] : null}
+                isOwnMessage={msg.authorId === USER_ID}
+                onSourceClick={setViewingSourceUrl}
+                canSpeak={canSpeak}
+                isSpeaking={speakingId === msg.id}
+                onToggleSpeak={() => handleToggleSpeak(msg)}
+                onRegenerate={msg.authorId !== USER_ID ? () => handleRegenerate(msg) : undefined}
+                canRegenerate={!isGenerating && authReady}
+              />
+            </React.Fragment>
+          );
+        })}
         {Array.from(typingPersonas).map(id => {
             const persona = personasMap[id];
             if (!persona) return null;

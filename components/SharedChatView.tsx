@@ -2,6 +2,8 @@ import React from 'react';
 import { useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import Avatar from './Avatar';
+import DateSeparator from './DateSeparator';
+import { isSameDay, shortTime } from '../services/time';
 
 // Read-only public view of a shared chat, rendered when the app is opened with
 // a ?share=<token> query param. No auth required — gated purely on the token.
@@ -41,34 +43,42 @@ const SharedChatView: React.FC<{ shareId: string }> = ({ shareId }) => {
         {data.messages.length === 0 && (
           <p className="text-center text-text-secondary mt-8">No messages.</p>
         )}
-        {data.messages.map((m) => {
+        {data.messages.map((m, i) => {
           const isUser = m.authorId === 'user';
+          const prev = i > 0 ? data.messages[i - 1] : null;
+          const showSeparator = !prev || !isSameDay(prev.timestamp, m.timestamp);
           return (
-            <div key={m.id} className={`flex items-end gap-2 w-full ${isUser ? 'justify-end' : 'justify-start'}`}>
-              {!isUser && <div className="mb-2"><Avatar src={m.authorAvatar} name={m.authorName} size={32} /></div>}
-              <div className="flex flex-col max-w-[85%] sm:max-w-md lg:max-w-2xl">
-                {!isUser && <span className="text-sm font-bold mb-1 ml-3 text-accent-blue">{m.authorName}</span>}
-                <div className={`px-4 py-2 rounded-lg text-text-primary ${isUser ? 'bg-message-out' : 'bg-message-in'}`}>
-                  {m.attachments.map((a, i) =>
-                    a.url && a.mimeType.startsWith('image/') ? (
-                      <img key={i} src={a.url} alt={a.name} className="rounded-md mb-2 max-h-64" />
-                    ) : (
-                      <p key={i} className="text-xs text-text-secondary">📎 {a.name}</p>
-                    ),
-                  )}
-                  {m.text && <p className="whitespace-pre-wrap">{m.text}</p>}
-                  {m.sources.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-white/10 space-y-1">
-                      {m.sources.map((s, i) => (
-                        <a key={i} href={s.uri} target="_blank" rel="noreferrer" className="block text-xs text-accent-blue hover:underline truncate">
-                          🔗 {s.title}
-                        </a>
-                      ))}
-                    </div>
-                  )}
+            <React.Fragment key={m.id}>
+              {showSeparator && <DateSeparator ts={m.timestamp} />}
+              <div className={`flex items-end gap-2 w-full ${isUser ? 'justify-end' : 'justify-start'}`}>
+                {!isUser && <div className="mb-2"><Avatar src={m.authorAvatar} name={m.authorName} size={32} /></div>}
+                <div className="flex flex-col max-w-[85%] sm:max-w-md lg:max-w-2xl">
+                  {!isUser && <span className="text-sm font-bold mb-1 ml-3 text-accent-blue">{m.authorName}</span>}
+                  <div className={`px-4 py-2 rounded-lg text-text-primary ${isUser ? 'bg-message-out' : 'bg-message-in'}`}>
+                    {m.attachments.map((a, j) =>
+                      a.url && a.mimeType.startsWith('image/') ? (
+                        <img key={j} src={a.url} alt={a.name} className="rounded-md mb-2 max-h-64" />
+                      ) : (
+                        <p key={j} className="text-xs text-text-secondary">📎 {a.name}</p>
+                      ),
+                    )}
+                    {m.text && <p className="whitespace-pre-wrap">{m.text}</p>}
+                    {m.sources.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-white/10 space-y-1">
+                        {m.sources.map((s, j) => (
+                          <a key={j} href={s.uri} target="_blank" rel="noreferrer" className="block text-xs text-accent-blue hover:underline truncate">
+                            🔗 {s.title}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <span className={`text-[10px] text-text-secondary mt-0.5 px-1 ${isUser ? 'self-end' : 'self-start'}`}>
+                    {shortTime(m.timestamp)}
+                  </span>
                 </div>
               </div>
-            </div>
+            </React.Fragment>
           );
         })}
       </main>
