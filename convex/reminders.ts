@@ -146,6 +146,15 @@ export const fire = internalMutation({
     });
     await ctx.db.patch(reminder.chatId, { updatedAt: Date.now() });
 
+    // Alert the user via Web Push even if the app is closed. No-ops if push
+    // isn't configured or the user hasn't subscribed.
+    await ctx.scheduler.runAfter(0, internal.push.notifyReminder, {
+      userId: reminder.userId,
+      title: `⏰ ${room.topic}`,
+      body: reminder.text,
+      url: "/",
+    });
+
     if (reminder.repeat === "none") {
       await ctx.db.patch(args.reminderId, { active: false, scheduledFnId: undefined });
       return;
