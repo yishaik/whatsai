@@ -5,6 +5,8 @@ import Avatar from './Avatar';
 import { findModelLabel, providerForModel } from '../services/models';
 import { useModels } from '../hooks/useModels';
 import { SKILLS } from '../services/skills';
+import { PERSONA_TEMPLATES } from '../services/personaTemplates';
+import { downloadText } from '../services/exportChat';
 
 interface PersonaManagerProps {
   isOpen: boolean;
@@ -32,6 +34,59 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
   const [isCreating, setIsCreating] = useState(false);
   const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
   const [regeneratingAvatars, setRegeneratingAvatars] = useState<Set<string>>(new Set());
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const importInputRef = React.useRef<HTMLInputElement>(null);
+
+  const applyTemplate = (t: { name: string; prompt: string; skills: string[] }) => {
+    setEditingPersonaId(null);
+    setName(t.name);
+    setPrompt(t.prompt);
+    setSkills(new Set(t.skills));
+    setModel('');
+  };
+
+  const handleExportPersonas = () => {
+    const data = personas.map((p) => ({
+      name: p.name,
+      prompt: p.prompt,
+      canSearch: !!(p.skills?.includes('web_search') || p.canSearch),
+      skills: p.skills ?? [],
+      model: p.model,
+    }));
+    downloadText('whatsai-personas.json', JSON.stringify(data, null, 2), 'application/json');
+  };
+
+  const handleImportPersonas = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImportMsg(null);
+    setImporting(true);
+    try {
+      const parsed = JSON.parse(await file.text());
+      const list = Array.isArray(parsed) ? parsed : [parsed];
+      let count = 0;
+      for (const item of list) {
+        if (!item || typeof item.name !== 'string' || typeof item.prompt !== 'string') continue;
+        const itemSkills: string[] = Array.isArray(item.skills) ? item.skills.filter((s: unknown) => typeof s === 'string') : [];
+        await addPersona({
+          name: item.name.trim().slice(0, 80),
+          prompt: item.prompt.trim().slice(0, 4000),
+          canSearch: !!(item.canSearch || itemSkills.includes('web_search')),
+          skills: itemSkills,
+          model: typeof item.model === 'string' ? item.model : undefined,
+        });
+        count++;
+      }
+      setImportMsg(count > 0 ? `Imported ${count} persona${count > 1 ? 's' : ''}.` : 'No valid personas found in file.');
+    } catch (err) {
+      console.error('Import failed:', err);
+      setImportMsg('Could not read that file (expected JSON).');
+    } finally {
+      setImporting(false);
+    }
+  };
 
   // Close on Escape
   React.useEffect(() => {
@@ -135,6 +190,25 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
             <h3 className="text-lg font-semibold text-text-primary mb-4">
               {editingPersonaId ? 'Edit Persona' : 'Create New Persona'}
             </h3>
+            {!editingPersonaId && (
+              <div className="mb-4">
+                <p className="text-sm font-medium text-text-secondary mb-2">Start from a template</p>
+                <div className="flex flex-wrap gap-2">
+                  {PERSONA_TEMPLATES.map((t) => (
+                    <button
+                      key={t.name}
+                      type="button"
+                      onClick={() => applyTemplate(t)}
+                      disabled={isCreating}
+                      className="text-sm bg-item-active-bg hover:bg-item-hover-bg text-text-primary rounded-full px-3 py-1 border border-item-hover-bg disabled:opacity-50"
+                      title={t.prompt}
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label htmlFor="persona-name" className="block text-sm font-medium text-text-secondary mb-1">Name</label>
@@ -227,8 +301,25 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
           </div>
           
           <div className="border-t border-item-hover-bg pt-6">
-             <div className="flex justify-between items-center mb-4">
+             <div className="flex justify-between items-center mb-4 gap-2 flex-wrap">
                 <h3 className="text-lg font-semibold text-text-primary">Existing Personas</h3>
+                <div className="flex items-center gap-2">
+                  <input ref={importInputRef} type="file" accept="application/json,.json" onChange={handleImportPersonas} className="hidden" />
+                  <button
+                    onClick={() => importInputRef.current?.click()}
+                    disabled={importing}
+                    className="text-sm bg-item-active-bg hover:bg-item-hover-bg text-text-primary px-3 py-1 rounded-md disabled:opacity-50"
+                  >
+                    {importing ? 'Importing…' : 'Import'}
+                  </button>
+                  <button
+                    onClick={handleExportPersonas}
+                    disabled={personas.length === 0}
+                    className="text-sm bg-item-active-bg hover:bg-item-hover-bg text-text-primary px-3 py-1 rounded-md disabled:opacity-50"
+                  >
+                    Export
+                  </button>
+                </div>
                 {personas.some(p => p.avatar.includes('PHN2ZyB4bWxucz0iaHR0')) && (
                   <button
                     onClick={async () => {
@@ -246,6 +337,7 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
                   </button>
                 )}
              </div>
+            {importMsg && <p className="text-xs text-text-secondary mb-3">{importMsg}</p>}
             {personas.length === 0 ? (
                 <p className="text-text-secondary">No personas created yet.</p>
             ) : (
