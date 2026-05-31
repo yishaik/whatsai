@@ -94,6 +94,7 @@ export const generatePersonaResponse = async (
   history: Message[],
   allPersonasInChat: Persona[],
   personasMap: { [id: string]: Persona },
+  model: string,
   // Image attachments on the triggering user message, passed to the model as
   // vision input. The server fetches the bytes from these URLs.
   images: { url: string; mimeType: string }[] = [],
@@ -111,6 +112,7 @@ export const generatePersonaResponse = async (
     history,
     allPersonasInChat: allPersonasInChat.map(stripAvatar),
     personasMap: strippedPersonasMap,
+    model,
     images,
   }, signal);
 };
@@ -125,6 +127,7 @@ export const streamPersonaResponse = async (
   history: Message[],
   allPersonasInChat: Persona[],
   personasMap: { [id: string]: Persona },
+  model: string,
   images: { url: string; mimeType: string }[],
   onDelta: (fullText: string) => void,
   signal?: AbortSignal,
@@ -143,6 +146,7 @@ export const streamPersonaResponse = async (
       history,
       allPersonasInChat: allPersonasInChat.map(stripAvatar),
       personasMap: strippedPersonasMap,
+      model,
       images,
       stream: true,
     }),

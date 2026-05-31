@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Persona } from '../types';
 import { XMarkIcon, PencilIcon, MagnifyingGlassIcon, ArrowPathIcon, TrashIcon } from './icons';
 import Avatar from './Avatar';
+import { MODELS, labelForModel } from '../services/models';
 
 interface PersonaManagerProps {
   isOpen: boolean;
@@ -11,12 +12,15 @@ interface PersonaManagerProps {
   updatePersona: (id: string, data: Omit<Persona, 'id' | 'avatar'>) => void;
   regenerateAvatar: (personaId: string) => Promise<void>;
   deletePersona: (id: string) => void;
+  defaultModel: string;
+  onSetDefaultModel: (model: string) => void;
 }
 
-const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, personas, addPersona, updatePersona, regenerateAvatar, deletePersona }) => {
+const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, personas, addPersona, updatePersona, regenerateAvatar, deletePersona, defaultModel, onSetDefaultModel }) => {
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [canSearch, setCanSearch] = useState(false);
+  const [model, setModel] = useState(''); // '' = use the default model
   const [isCreating, setIsCreating] = useState(false);
   const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
   const [regeneratingAvatars, setRegeneratingAvatars] = useState<Set<string>>(new Set());
@@ -39,6 +43,7 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
     setName(persona.name);
     setPrompt(persona.prompt);
     setCanSearch(persona.canSearch || false);
+    setModel(persona.model || '');
   };
 
   const handleCancelEdit = () => {
@@ -46,12 +51,13 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
     setName('');
     setPrompt('');
     setCanSearch(false);
+    setModel('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim() && prompt.trim()) {
-      const personaData = { name: name.trim(), prompt: prompt.trim(), canSearch };
+      const personaData = { name: name.trim(), prompt: prompt.trim(), canSearch, model: model || undefined };
       if (editingPersonaId) {
         updatePersona(editingPersonaId, personaData);
         handleCancelEdit();
@@ -66,6 +72,7 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
           setName('');
           setPrompt('');
           setCanSearch(false);
+          setModel('');
         } catch (criticalError) {
           console.error("A critical error occurred while adding a persona:", criticalError);
           alert("An unexpected critical error occurred. Please check the console.");
@@ -108,6 +115,23 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
         </div>
 
         <div className="flex-grow overflow-y-auto p-6 space-y-6">
+          <div className="bg-item-active-bg rounded-lg p-3">
+            <label htmlFor="default-model" className="block text-sm font-medium text-text-primary mb-1">
+              Default model
+            </label>
+            <p className="text-xs text-text-secondary mb-2">Used for any persona that doesn't pick its own.</p>
+            <select
+              id="default-model"
+              value={defaultModel}
+              onChange={(e) => onSetDefaultModel(e.target.value)}
+              className="w-full bg-panel-bg border border-item-hover-bg text-text-primary rounded-md p-2 focus:ring-accent-green focus:border-accent-green"
+            >
+              {MODELS.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <h3 className="text-lg font-semibold text-text-primary mb-4">
               {editingPersonaId ? 'Edit Persona' : 'Create New Persona'}
@@ -151,6 +175,24 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
                   <label htmlFor="persona-search" className="text-sm text-text-secondary">
                     Enable Internet Search (provides access to real-time information)
                   </label>
+              </div>
+              <div>
+                <label htmlFor="persona-model" className="block text-sm font-medium text-text-secondary mb-1">Model</label>
+                <select
+                  id="persona-model"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  disabled={isCreating}
+                  className="w-full bg-item-active-bg border-gray-600 text-text-primary rounded-md p-2 focus:ring-accent-green focus:border-accent-green disabled:opacity-50"
+                >
+                  <option value="">Default ({labelForModel(defaultModel)})</option>
+                  {MODELS.map((m) => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </select>
+                {canSearch && model && MODELS.find((m) => m.id === model)?.provider === 'openai' && (
+                  <p className="text-xs text-yellow-500/80 mt-1">Note: internet search only works on Gemini models; it'll be ignored on GPT.</p>
+                )}
               </div>
               <div className="flex justify-end gap-2">
                  {editingPersonaId && (
@@ -205,6 +247,11 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
                                     <div className="flex items-center gap-2">
                                       <p className="font-bold text-text-primary truncate">{p.name}</p>
                                       {p.canSearch && <MagnifyingGlassIcon className="h-4 w-4 text-accent-blue flex-shrink-0" aria-label="Internet search enabled" />}
+                                      {p.model && (
+                                        <span className="text-[10px] uppercase tracking-wide bg-panel-bg text-text-secondary px-1.5 py-0.5 rounded flex-shrink-0">
+                                          {labelForModel(p.model)}
+                                        </span>
+                                      )}
                                     </div>
                                     <p className="text-sm text-text-secondary italic truncate">"{p.prompt}"</p>
                                 </div>

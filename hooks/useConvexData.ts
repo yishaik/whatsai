@@ -3,6 +3,7 @@ import { api } from "../convex/_generated/api";
 import { Id } from "../convex/_generated/dataModel";
 import { useState, useMemo } from "react";
 import { Attachment } from "../types";
+import { DEFAULT_MODEL_ID } from "../services/models";
 
 export type { Attachment };
 
@@ -13,6 +14,7 @@ export interface Persona {
   avatar: string;
   prompt: string;
   canSearch?: boolean;
+  model?: string;
 }
 
 export interface Message {
@@ -42,6 +44,14 @@ export function useConvexData() {
   // Convex queries
   const convexPersonas = useQuery(api.chat.getAllPersonas) || [];
   const convexChatRooms = useQuery(api.chat.getAllChatRooms) || [];
+  const settings = useQuery(api.chat.getMySettings);
+  const setDefaultModelMutation = useMutation(api.chat.setDefaultModel);
+
+  // The user's chosen default reply model (falls back before they pick one).
+  const defaultModel = settings?.defaultModel || DEFAULT_MODEL_ID;
+  const setDefaultModel = async (model: string) => {
+    await setDefaultModelMutation({ model });
+  };
 
   // Convex mutations
   const createPersonaMutation = useMutation(api.chat.createPersona);
@@ -65,6 +75,7 @@ export function useConvexData() {
       avatar: p.avatar,
       prompt: p.prompt,
       canSearch: p.canSearch,
+      model: p.model,
     }));
   }, [convexPersonas]);
 
@@ -102,6 +113,7 @@ export function useConvexData() {
       avatarStorageId: personaData.avatarStorageId as Id<"_storage"> | undefined,
       prompt: personaData.prompt,
       canSearch: personaData.canSearch || false,
+      model: personaData.model,
     });
     return id;
   };
@@ -118,6 +130,7 @@ export function useConvexData() {
       avatarStorageId: updates.avatarStorageId as Id<"_storage"> | undefined,
       prompt: updates.prompt,
       canSearch: updates.canSearch,
+      model: updates.model,
     });
   };
 
@@ -244,6 +257,10 @@ export function useConvexData() {
     personasMap,
     activeChatId,
     setActiveChatId,
+
+    // Settings
+    defaultModel,
+    setDefaultModel,
 
     // Persona functions
     addPersona,

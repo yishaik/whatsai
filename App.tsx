@@ -29,6 +29,8 @@ const App: React.FC = () => {
     claimResponseSlot,
     uploadAvatar,
     uploadFile,
+    defaultModel,
+    setDefaultModel,
   } = useConvexData();
 
   const activeChatMessages = useChatMessages(activeChatId);
@@ -77,6 +79,7 @@ const App: React.FC = () => {
       name: personaData.name,
       prompt: personaData.prompt,
       canSearch: personaData.canSearch,
+      model: personaData.model,
       avatar,
       avatarStorageId,
     });
@@ -189,6 +192,7 @@ const App: React.FC = () => {
           chatRoom={activeChat}
           personasMap={personasMap}
           authReady={isAuthenticated}
+          defaultModel={defaultModel}
           onSendMessage={addMessageToChat}
           onUploadFile={uploadFile}
           onClaimResponse={claimResponseSlot}
@@ -205,6 +209,8 @@ const App: React.FC = () => {
         updatePersona={updatePersona}
         regenerateAvatar={regeneratePersonaAvatar}
         deletePersona={deletePersona}
+        defaultModel={defaultModel}
+        onSetDefaultModel={setDefaultModel}
       />
 
       <CreateChatModal

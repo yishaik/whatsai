@@ -18,6 +18,7 @@ interface ChatViewProps {
   chatRoom: ChatRoom | null;
   personasMap: { [id: string]: Persona };
   authReady: boolean;
+  defaultModel: string;
   onSendMessage: (chatId: string, message: Omit<Message, 'id' | 'timestamp'>) => void | Promise<void>;
   onUploadFile: (file: File) => Promise<Attachment>;
   onClaimResponse: (chatId: string, triggerMessageId: string, personaId: string) => Promise<boolean>;
@@ -74,7 +75,7 @@ const StreamingBubble: React.FC<{ persona: Persona; text: string }> = ({ persona
     </div>
 );
 
-const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, onSendMessage, onUploadFile, onClaimResponse, onEditChat, onDeleteChat }) => {
+const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, onSendMessage, onUploadFile, onClaimResponse, onEditChat, onDeleteChat }) => {
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
@@ -251,13 +252,16 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
         if (signal.aborted) return;
         if (!won) continue;
 
+        // Per-persona model override, else the user's default.
+        const model = persona.model || defaultModel;
+
         setTypingPersonas(prev => new Set(prev).add(persona.id));
         try {
             let response: Awaited<ReturnType<typeof streamPersonaResponse>>;
             try {
                 // Stream tokens into a live bubble for this client.
                 response = await streamPersonaResponse(
-                    persona, chatTopic, runningHistory, personasInChat, personasMap, triggerImages,
+                    persona, chatTopic, runningHistory, personasInChat, personasMap, model, triggerImages,
                     (full) => {
                         if (!signal.aborted) {
                             setStreamingText(prev => ({ ...prev, [persona.id]: full }));
@@ -270,7 +274,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
                 // Streaming failed — fall back to the non-streaming endpoint so a
                 // flaky stream never costs us the reply.
                 console.warn("Streaming failed, falling back to non-streaming:", streamError);
-                response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, triggerImages, signal);
+                response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, model, triggerImages, signal);
             }
             if (signal.aborted) return;
             // Make this reply visible to the next persona in the round. Convex's
@@ -305,7 +309,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, o
             });
         }
     }
-  }, [chatRoom, personasMap, onSendMessage, onClaimResponse]);
+  }, [chatRoom, personasMap, onSendMessage, onClaimResponse, defaultModel]);
   
   useEffect(() => {
     if (chatRoom && chatRoom.messages.length > 0) {
