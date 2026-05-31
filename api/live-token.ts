@@ -1,4 +1,26 @@
 import { GoogleGenAI, Modality } from '@google/genai';
+import { ConvexHttpClient } from 'convex/browser';
+import { makeFunctionReference } from 'convex/server';
+
+// Per-IP rate limit backed by Convex (see api/persona-response.ts). Inlined to
+// avoid cross-dir imports in the ESM serverless runtime; fails open.
+const clientIp = (req: any): string =>
+  String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+  String(req.headers['x-real-ip'] || '') ||
+  'unknown';
+
+const ipLimitOk = async (req: any, action: string): Promise<boolean> => {
+  const url = process.env.VITE_CONVEX_URL || process.env.CONVEX_URL;
+  if (!url) return true;
+  try {
+    const client = new ConvexHttpClient(url);
+    const ref = makeFunctionReference<'mutation'>('chat:consumeIpLimit');
+    return await client.mutation(ref, { ip: clientIp(req), action });
+  } catch (error) {
+    console.error('IP rate-limit check failed (allowing):', error);
+    return true;
+  }
+};
 
 // The Gemini Live model for real-time voice. This native-audio model is the one
 // available on our key's tier for the constrained ephemeral-token connection
@@ -26,6 +48,10 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    if (!(await ipLimitOk(req, 'voice'))) {
+      return res.status(429).json({ error: 'Too many requests — please slow down and try again shortly.' });
+    }
+
     const body = req.body || {};
     const systemInstruction: string | undefined =
       typeof body.systemInstruction === 'string' ? body.systemInstruction : undefined;

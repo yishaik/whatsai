@@ -39,14 +39,20 @@ const RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
   aiReply: { limit: 100, windowMs: 60_000 }, // persona-reply claims / minute (well above normal multi-persona use)
 };
 
-// Consume one unit for (key, action). Returns false if the window is exhausted.
-const consumeRateLimit = async (
+// Per-IP limits for direct hits on the Vercel AI endpoints (defense against
+// callers bypassing the in-app flow). Generous so shared NATs aren't caught.
+const IP_RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
+  ai: { limit: 80, windowMs: 60_000 }, // /api/persona-response
+  image: { limit: 20, windowMs: 60_000 }, // /api/avatar, /api/group-avatar
+  voice: { limit: 20, windowMs: 60_000 }, // /api/live-token
+};
+
+// Core fixed-window consume for an arbitrary key. Returns false if exhausted.
+const consumeRateLimitKey = async (
   ctx: MutationCtx,
-  key: Id<"users">,
-  action: keyof typeof RATE_LIMITS,
+  fullKey: string,
+  cfg: { limit: number; windowMs: number },
 ): Promise<boolean> => {
-  const cfg = RATE_LIMITS[action];
-  const fullKey = `${key}:${action}`;
   const now = Date.now();
   const row = await ctx.db
     .query("rateLimits")
@@ -61,6 +67,23 @@ const consumeRateLimit = async (
   await ctx.db.patch(row._id, { count: row.count + 1 });
   return true;
 };
+
+// Consume one unit for (userId, action). Returns false if the window is exhausted.
+const consumeRateLimit = (
+  ctx: MutationCtx,
+  key: Id<"users">,
+  action: keyof typeof RATE_LIMITS,
+): Promise<boolean> => consumeRateLimitKey(ctx, `${key}:${action}`, RATE_LIMITS[action]);
+
+// Public: per-IP limit consumed by the Vercel AI endpoints before calling the
+// paid APIs. Unauthenticated by design (the function passes the client IP).
+export const consumeIpLimit = mutation({
+  args: { ip: v.string(), action: v.string() },
+  handler: async (ctx, args) => {
+    const cfg = IP_RATE_LIMITS[args.action] ?? { limit: 60, windowMs: 60_000 };
+    return await consumeRateLimitKey(ctx, `ip:${args.ip}:${args.action}`, cfg);
+  },
+});
 
 // ==================== ACCESS CONTROL ====================
 // Rooms are public by default (legacy rows predate auth and have no
