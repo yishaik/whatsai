@@ -244,6 +244,9 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     // Snapshot chat context; it must not change mid-loop if the user navigates.
     const chatId = chatRoom.id;
     const chatTopic = chatRoom.topic;
+    const chatModel = chatRoom.model;
+    const chatTemperature = chatRoom.temperature;
+    const maxResponders = chatRoom.maxResponders;
     // Running history accumulates each persona's reply as it lands, so later
     // personas in this round react to earlier ones — a real group conversation
     // rather than N monologues all answering the same stale snapshot.
@@ -259,11 +262,17 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
         .map(id => personasMap[id])
         .filter((p): p is Persona => Boolean(p));
 
+    // Per-chat cap on how many participants reply (default: all). The full list
+    // is still passed as context so responders know who else is in the room.
+    const responders = typeof maxResponders === 'number' && maxResponders > 0
+        ? personasInChat.slice(0, maxResponders)
+        : personasInChat;
+
     const controller = new AbortController();
     generationAbortRef.current = controller;
     const { signal } = controller;
 
-    for (const persona of personasInChat) {
+    for (const persona of responders) {
         if (signal.aborted) return;
 
         // Atomically claim this reply so that across all clients viewing this
@@ -279,8 +288,8 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
         if (signal.aborted) return;
         if (!won) continue;
 
-        // Per-persona model override, else the user's default.
-        const model = persona.model || defaultModel;
+        // Model fallback chain: per-persona override → per-chat default → user default.
+        const model = persona.model || chatModel || defaultModel;
 
         setTypingPersonas(prev => new Set(prev).add(persona.id));
         try {
@@ -294,6 +303,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                             setStreamingText(prev => ({ ...prev, [persona.id]: full }));
                         }
                     },
+                    chatTemperature,
                     signal,
                 );
             } catch (streamError) {
@@ -301,7 +311,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                 // Streaming failed — fall back to the non-streaming endpoint so a
                 // flaky stream never costs us the reply.
                 console.warn("Streaming failed, falling back to non-streaming:", streamError);
-                response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, model, triggerImages, signal);
+                response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, model, triggerImages, chatTemperature, signal);
             }
             if (signal.aborted) return;
             // Make this reply visible to the next persona in the round. Convex's

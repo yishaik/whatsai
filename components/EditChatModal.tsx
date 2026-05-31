@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ChatRoom, Persona } from '../types';
 import { XMarkIcon, ArrowPathIcon } from './icons';
 import Avatar from './Avatar';
+import { useModels } from '../hooks/useModels';
 
 interface EditChatModalProps {
   isOpen: boolean;
@@ -23,11 +24,19 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
   const [topic, setTopic] = useState('');
   const [selectedPersonaIds, setSelectedPersonaIds] = useState<Set<string>>(new Set());
   const [isGeneratingAvatar, setIsGeneratingAvatar] = useState(false);
+  // Per-chat settings. "" model = use app/persona default; 0 responders = all.
+  const [model, setModel] = useState('');
+  const [temperature, setTemperature] = useState(0.9);
+  const [maxResponders, setMaxResponders] = useState(0);
+  const models = useModels();
 
   useEffect(() => {
     if (chatRoom) {
       setTopic(chatRoom.topic);
       setSelectedPersonaIds(new Set(chatRoom.personaIds));
+      setModel(chatRoom.model ?? '');
+      setTemperature(chatRoom.temperature ?? 0.9);
+      setMaxResponders(chatRoom.maxResponders ?? 0);
     }
   }, [chatRoom]);
 
@@ -60,7 +69,10 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
     if (topic && selectedPersonaIds.size > 0) {
       updateChatRoom(chatRoom.id, {
         topic: topic.trim(),
-        personaIds: Array.from(selectedPersonaIds)
+        personaIds: Array.from(selectedPersonaIds),
+        model,
+        temperature,
+        maxResponders,
       });
       onClose();
     }
@@ -139,8 +151,78 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
                 ))}
               </div>
             </div>
+
+            <div className="border-t border-item-hover-bg pt-5 space-y-4">
+              <h3 className="text-sm font-semibold text-text-primary">Chat settings</h3>
+
+              <div>
+                <label htmlFor="chat-model" className="block text-sm font-medium text-text-secondary mb-1">Model</label>
+                <select
+                  id="chat-model"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="w-full bg-item-active-bg border border-item-hover-bg text-text-primary rounded-md p-2 focus:ring-accent-green focus:border-accent-green"
+                >
+                  <option value="">Default (my setting / per-persona)</option>
+                  {models.filter((m) => m.provider === 'gemini').length > 0 && (
+                    <optgroup label="Gemini">
+                      {models.filter((m) => m.provider === 'gemini').map((m) => (
+                        <option key={m.id} value={m.id}>{m.label}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {models.filter((m) => m.provider === 'openai').length > 0 && (
+                    <optgroup label="OpenAI">
+                      {models.filter((m) => m.provider === 'openai').map((m) => (
+                        <option key={m.id} value={m.id}>{m.label}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {model && !models.some((m) => m.id === model) && (
+                    <option value={model}>{model}</option>
+                  )}
+                </select>
+                <p className="text-xs text-text-secondary mt-1">A persona's own model override still wins over this.</p>
+              </div>
+
+              <div>
+                <label htmlFor="chat-temp" className="block text-sm font-medium text-text-secondary mb-1">
+                  Temperature <span className="text-text-primary">{temperature.toFixed(1)}</span>
+                </label>
+                <input
+                  id="chat-temp"
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.1}
+                  value={temperature}
+                  onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                  className="w-full accent-accent-green"
+                />
+                <div className="flex justify-between text-xs text-text-secondary">
+                  <span>Focused</span>
+                  <span>Creative</span>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="chat-responders" className="block text-sm font-medium text-text-secondary mb-1">Who replies</label>
+                <select
+                  id="chat-responders"
+                  value={maxResponders}
+                  onChange={(e) => setMaxResponders(parseInt(e.target.value, 10))}
+                  className="w-full bg-item-active-bg border border-item-hover-bg text-text-primary rounded-md p-2 focus:ring-accent-green focus:border-accent-green"
+                >
+                  <option value={0}>All participants</option>
+                  {Array.from({ length: selectedPersonaIds.size }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>{n === 1 ? 'First 1 participant' : `First ${n} participants`}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-text-secondary mt-1">Cap how many personas reply to each message (reduces noise & cost).</p>
+              </div>
+            </div>
           </div>
-          
+
           <div className="p-4 bg-panel-header-bg rounded-b-lg flex justify-end gap-3">
             <button
               type="button"

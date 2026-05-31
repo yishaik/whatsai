@@ -156,6 +156,11 @@ export default async function handler(req: any, res: any) {
     const requestedModel =
       typeof body.model === 'string' && body.model ? body.model : DEFAULT_MODEL_ID;
     const provider = providerForModel(requestedModel);
+    // Per-chat temperature override, clamped to a safe range; default 0.9.
+    const temperature =
+      typeof body.temperature === 'number' && isFinite(body.temperature)
+        ? Math.max(0, Math.min(2, body.temperature))
+        : 0.9;
 
     const otherPersonas = allPersonasInChat
       .filter((participant: any) => participant.id !== personaWithoutAvatar.id)
@@ -229,7 +234,7 @@ Do not prefix your response with your name (e.g., don't write "${personaWithoutA
           const stream = await openai.chat.completions.create({
             model: requestedModel,
             messages,
-            temperature: 0.9,
+            temperature,
             stream: true,
           });
           for await (const chunk of stream) {
@@ -249,7 +254,7 @@ Do not prefix your response with your name (e.g., don't write "${personaWithoutA
       const completion = await openai.chat.completions.create({
         model: requestedModel,
         messages,
-        temperature: 0.9,
+        temperature,
       });
       const text = completion.choices?.[0]?.message?.content?.trim() ?? '';
       return res.status(200).json({ text, sources: [] });
@@ -259,7 +264,7 @@ Do not prefix your response with your name (e.g., don't write "${personaWithoutA
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const config: Record<string, any> = {
       systemInstruction,
-      temperature: 0.9,
+      temperature,
       topP: 0.95,
       topK: 40,
     };

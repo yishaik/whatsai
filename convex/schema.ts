@@ -35,6 +35,13 @@ export default defineSchema({
     // Absent visibility is treated as "public" so existing rooms keep working
     // with no data migration.
     visibility: v.optional(v.union(v.literal("public"), v.literal("private"))),
+    // Per-chat reply settings (all optional; absent = app defaults). `model` is
+    // a chat-level default in the fallback chain persona.model → chat.model →
+    // user default. `temperature` overrides the sampling temperature.
+    // `maxResponders` caps how many participants reply to each user message.
+    model: v.optional(v.string()),
+    temperature: v.optional(v.number()),
+    maxResponders: v.optional(v.number()),
   }).index("by_owner", ["ownerId"]),
 
   // Per-user preferences (e.g. the default model for persona replies).
