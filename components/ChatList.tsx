@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { ChatRoom } from '../types';
-import { PlusIcon, UsersIcon, TrashIcon, LockClosedIcon } from './icons';
+import { PlusIcon, UsersIcon, TrashIcon, LockClosedIcon, Cog6ToothIcon } from './icons';
 import Avatar from './Avatar';
 import AuthControl from './AuthControl';
 
@@ -11,6 +11,7 @@ interface ChatListProps {
   setActiveChatId: (id: string) => void;
   onNewChat: () => void;
   onManagePersonas: () => void;
+  onOpenSettings: () => void;
   onDeleteChat: (id: string) => void;
   isMobileOpen: boolean;
   onMobileClose: () => void;
@@ -74,6 +75,7 @@ const ChatList: React.FC<ChatListProps> = ({
   setActiveChatId,
   onNewChat,
   onManagePersonas,
+  onOpenSettings,
   onDeleteChat,
   isMobileOpen,
   onMobileClose,
@@ -106,6 +108,9 @@ const ChatList: React.FC<ChatListProps> = ({
             </button>
             <button onClick={onManagePersonas} className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg" title="Manage personas">
               <UsersIcon className="h-6 w-6" />
+            </button>
+            <button onClick={onOpenSettings} className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg" title="Settings">
+              <Cog6ToothIcon className="h-6 w-6" />
             </button>
           </div>
         </header>

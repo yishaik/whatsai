@@ -1,6 +1,6 @@
-// Shared model registry — imported by the client (pickers, routing the model to
-// the API) and the server (api/persona-response.ts picks the provider). Keep it
-// dependency-free so both sides can import it.
+// Model registry helpers for the client. The actual selectable list is fetched
+// live from /api/models (see hooks/useModels); this provides the fallback list
+// and id-based helpers that work for any model id without the full list.
 
 export type ModelProvider = 'gemini' | 'openai';
 
@@ -10,7 +10,8 @@ export interface ModelOption {
   provider: ModelProvider;
 }
 
-export const MODELS: ModelOption[] = [
+// Used before /api/models responds, or if it fails / a key is missing.
+export const FALLBACK_MODELS: ModelOption[] = [
   { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', provider: 'gemini' },
   { id: 'gpt-4o-mini', label: 'GPT-4o mini', provider: 'openai' },
   { id: 'gpt-4o', label: 'GPT-4o', provider: 'openai' },
@@ -18,17 +19,13 @@ export const MODELS: ModelOption[] = [
   { id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai' },
 ];
 
-// The fallback default for personas that don't specify a model and before a
-// user has chosen one.
+// The fallback default before a user has chosen one.
 export const DEFAULT_MODEL_ID = 'gemini-3.1-flash-lite-preview';
 
-export const isValidModel = (id: string | undefined | null): id is string =>
-  !!id && MODELS.some((m) => m.id === id);
-
-// Resolve the provider for a model id. Falls back to gemini for unknown ids so a
-// stale/typo'd value never routes to the wrong API unexpectedly.
+// Provider from the id alone (OpenAI ids start with gpt/o-series/chatgpt).
 export const providerForModel = (id: string): ModelProvider =>
-  MODELS.find((m) => m.id === id)?.provider ?? 'gemini';
+  /^(gpt|o\d|chatgpt)/i.test(id) ? 'openai' : 'gemini';
 
-export const labelForModel = (id: string): string =>
-  MODELS.find((m) => m.id === id)?.label ?? id;
+// Friendly label for an id, looked up in a (fetched) list, else the id itself.
+export const findModelLabel = (models: ModelOption[], id: string): string =>
+  models.find((m) => m.id === id)?.label ?? id;
