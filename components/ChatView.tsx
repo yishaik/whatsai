@@ -35,6 +35,7 @@ interface ChatViewProps {
   onGenerateImage: (prompt: string) => Promise<Attachment>;
   onScheduleReminder: (chatId: string, personaId: string, reminder: ReminderInput) => Promise<void>;
   onRecordUsage: (usage: UsageInfo) => void;
+  onDeleteMessage: (messageId: string) => Promise<unknown> | void;
   onClaimResponse: (chatId: string, triggerMessageId: string, personaId: string) => Promise<boolean>;
   onOpenReminders: () => void;
   onEditChat?: () => void;
@@ -90,7 +91,7 @@ const StreamingBubble: React.FC<{ persona: Persona; text: string }> = ({ persona
     </div>
 );
 
-const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, onSendMessage, onUploadFile, onGenerateImage, onScheduleReminder, onRecordUsage, onClaimResponse, onOpenReminders, onEditChat, onDeleteChat }) => {
+const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, onSendMessage, onUploadFile, onGenerateImage, onScheduleReminder, onRecordUsage, onDeleteMessage, onClaimResponse, onOpenReminders, onEditChat, onDeleteChat }) => {
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
@@ -537,6 +538,58 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     setStreamingText({});
   };
 
+  // Regenerate one persona reply: delete it, then generate a fresh response for
+  // that persona against the conversation up to (but excluding) that reply.
+  const handleRegenerate = async (message: Message) => {
+    if (!chatRoom || isGenerating || message.authorId === USER_ID) return;
+    const persona = personasMap[message.authorId];
+    if (!persona) return;
+    const idx = chatRoom.messages.findIndex((m) => m.id === message.id);
+    if (idx < 0) return;
+    const history = chatRoom.messages.slice(0, idx);
+    const chatId = chatRoom.id;
+    const personasInChat = chatRoom.personaIds.map((id) => personasMap[id]).filter((p): p is Persona => Boolean(p));
+    const model = persona.model || chatRoom.model || defaultModel;
+
+    try {
+      await onDeleteMessage(message.id);
+    } catch (error) {
+      console.error('Failed to delete message for regenerate:', error);
+      return;
+    }
+
+    const controller = new AbortController();
+    generationAbortRef.current = controller;
+    const { signal } = controller;
+    setTypingPersonas((prev) => new Set(prev).add(persona.id));
+    try {
+      let response: Awaited<ReturnType<typeof streamPersonaResponse>>;
+      try {
+        response = await streamPersonaResponse(
+          persona, chatRoom.topic, history, personasInChat, personasMap, model, [],
+          (full) => { if (!signal.aborted) setStreamingText((prev) => ({ ...prev, [persona.id]: full })); },
+          chatRoom.temperature, chatRoom.summary, signal,
+        );
+      } catch (streamError) {
+        if (signal.aborted) return;
+        response = await generatePersonaResponse(persona, chatRoom.topic, history, personasInChat, personasMap, model, [], chatRoom.temperature, chatRoom.summary, signal);
+      }
+      if (signal.aborted) return;
+      const outMod = await moderateText(response.text);
+      if (signal.aborted) return;
+      const replyText = outMod.flagged ? '⚠️ This reply was withheld (content policy).' : response.text;
+      onSendMessage(chatId, { authorId: persona.id, text: replyText, sources: outMod.flagged ? [] : response.sources });
+      if (response.usage) onRecordUsage(response.usage);
+    } catch (error) {
+      if (signal.aborted) return;
+      console.error('Regenerate failed for', persona.name, error);
+      setFailedPersonas((prev) => [...prev, persona.name]);
+    } finally {
+      setStreamingText((prev) => { const next = { ...prev }; delete next[persona.id]; return next; });
+      setTypingPersonas((prev) => { const s = new Set(prev); s.delete(persona.id); return s; });
+    }
+  };
+
   const isGenerating = typingPersonas.size > 0;
 
   // Fetch suggested next messages when it's the user's turn (chat empty, or the
@@ -656,6 +709,8 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
             canSpeak={canSpeak}
             isSpeaking={speakingId === msg.id}
             onToggleSpeak={() => handleToggleSpeak(msg)}
+            onRegenerate={msg.authorId !== USER_ID ? () => handleRegenerate(msg) : undefined}
+            canRegenerate={!isGenerating && authReady}
           />
         ))}
         {Array.from(typingPersonas).map(id => {

@@ -31,6 +31,7 @@ const App: React.FC = () => {
     createShareLink,
     revokeShareLink,
     addMessage: addMessageToDb,
+    deleteMessage,
     claimResponseSlot,
     uploadAvatar,
     uploadFile,
@@ -227,6 +228,7 @@ const App: React.FC = () => {
           onGenerateImage={onGenerateImage}
           onScheduleReminder={scheduleReminder}
           onRecordUsage={recordUsage}
+          onDeleteMessage={deleteMessage}
           onClaimResponse={claimResponseSlot}
           onOpenReminders={() => setIsRemindersOpen(true)}
           onEditChat={() => activeChat && setEditingChatRoom(activeChat)}
