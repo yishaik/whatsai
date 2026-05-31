@@ -43,6 +43,13 @@ export default defineSchema({
     defaultModel: v.string(),
   }).index("by_user", ["userId"]),
 
+  // Fixed-window rate-limit counters, keyed by `${userId}:${action}`.
+  rateLimits: defineTable({
+    key: v.string(),
+    count: v.number(),
+    windowStart: v.number(),
+  }).index("by_key", ["key"]),
+
   // הודעות
   messages: defineTable({
     chatRoomId: v.id("chatRooms"),

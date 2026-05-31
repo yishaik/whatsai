@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
@@ -28,6 +29,37 @@ const resolveAvatar = async (
     if (url) return url;
   }
   return doc.avatar ?? "";
+};
+
+// ==================== RATE LIMITING ====================
+// Simple per-user fixed-window limiter to protect cost/abuse on the hot write
+// paths. Keyed by `${userId}:${action}`.
+const RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
+  sendMessage: { limit: 20, windowMs: 60_000 }, // user messages / minute
+  aiReply: { limit: 100, windowMs: 60_000 }, // persona-reply claims / minute (well above normal multi-persona use)
+};
+
+// Consume one unit for (key, action). Returns false if the window is exhausted.
+const consumeRateLimit = async (
+  ctx: MutationCtx,
+  key: Id<"users">,
+  action: keyof typeof RATE_LIMITS,
+): Promise<boolean> => {
+  const cfg = RATE_LIMITS[action];
+  const fullKey = `${key}:${action}`;
+  const now = Date.now();
+  const row = await ctx.db
+    .query("rateLimits")
+    .withIndex("by_key", (q) => q.eq("key", fullKey))
+    .first();
+  if (!row || now - row.windowStart >= cfg.windowMs) {
+    if (row) await ctx.db.patch(row._id, { count: 1, windowStart: now });
+    else await ctx.db.insert("rateLimits", { key: fullKey, count: 1, windowStart: now });
+    return true;
+  }
+  if (row.count >= cfg.limit) return false;
+  await ctx.db.patch(row._id, { count: row.count + 1 });
+  return true;
 };
 
 // ==================== ACCESS CONTROL ====================
@@ -416,6 +448,10 @@ export const addMessage = mutation({
     if (!room) throw new Error("Chat room not found");
     assertCanPost(room, userId);
 
+    if (userId && !(await consumeRateLimit(ctx, userId, "sendMessage"))) {
+      throw new Error("You're sending messages too fast — please wait a moment and try again.");
+    }
+
     const messageId = await ctx.db.insert("messages", {
       ...args,
       timestamp: Date.now(),
@@ -481,6 +517,11 @@ export const claimResponseSlot = mutation({
     const room = await ctx.db.get(args.chatRoomId);
     if (!room) return false;
     assertCanPost(room, userId);
+
+    // Over the AI-reply rate limit: skip generating this reply (degrade quietly).
+    if (userId && !(await consumeRateLimit(ctx, userId, "aiReply"))) {
+      return false;
+    }
 
     const now = Date.now();
 
