@@ -1,4 +1,26 @@
 import { GoogleGenAI } from '@google/genai';
+import { ConvexHttpClient } from 'convex/browser';
+import { makeFunctionReference } from 'convex/server';
+
+// Per-IP rate limit backed by Convex (see api/persona-response.ts). Inlined to
+// avoid cross-dir imports in the ESM serverless runtime; fails open.
+const clientIp = (req: any): string =>
+  String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+  String(req.headers['x-real-ip'] || '') ||
+  'unknown';
+
+const ipLimitOk = async (req: any, action: string): Promise<boolean> => {
+  const url = process.env.VITE_CONVEX_URL || process.env.CONVEX_URL;
+  if (!url) return true;
+  try {
+    const client = new ConvexHttpClient(url);
+    const ref = makeFunctionReference<'mutation'>('chat:consumeIpLimit');
+    return await client.mutation(ref, { ip: clientIp(req), action });
+  } catch (error) {
+    console.error('IP rate-limit check failed (allowing):', error);
+    return true;
+  }
+};
 
 const getApiKey = (): string => {
   const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
@@ -28,6 +50,10 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    if (!(await ipLimitOk(req, 'image'))) {
+      return res.status(429).json({ error: 'Too many requests — please slow down and try again shortly.' });
+    }
+
     const { name, prompt } = req.body || {};
 
     if (!name || !prompt) {

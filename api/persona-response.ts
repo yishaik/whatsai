@@ -1,5 +1,28 @@
 import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
+import { ConvexHttpClient } from 'convex/browser';
+import { makeFunctionReference } from 'convex/server';
+
+// Per-IP rate limit, backed by Convex (shared across lambda instances), so this
+// paid endpoint can't be hammered directly. Inlined (no cross-dir import — that
+// breaks the ESM serverless runtime); fails OPEN if Convex is unreachable.
+const clientIp = (req: any): string =>
+  String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+  String(req.headers['x-real-ip'] || '') ||
+  'unknown';
+
+const ipLimitOk = async (req: any, action: string): Promise<boolean> => {
+  const url = process.env.VITE_CONVEX_URL || process.env.CONVEX_URL;
+  if (!url) return true;
+  try {
+    const client = new ConvexHttpClient(url);
+    const ref = makeFunctionReference<'mutation'>('chat:consumeIpLimit');
+    return await client.mutation(ref, { ip: clientIp(req), action });
+  } catch (error) {
+    console.error('IP rate-limit check failed (allowing):', error);
+    return true;
+  }
+};
 
 // Provider detection is inlined (not imported from ../services/models) because
 // this serverless function runs as ESM and a cross-directory relative import
@@ -99,8 +122,12 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    if (!(await ipLimitOk(req, 'ai'))) {
+      return res.status(429).json({ error: 'Too many requests — please slow down and try again shortly.' });
+    }
+
     const body = req.body || {};
-    
+
     // Strip out avatar fields to reduce payload size
     const persona = body.persona || {};
     const { avatar: _, ...personaWithoutAvatar } = persona;
