@@ -38,6 +38,7 @@ export interface ChatRoom {
   model?: string;
   temperature?: number;
   maxResponders?: number;
+  shareId?: string;
 }
 
 // Hook to manage all data with Convex
@@ -64,6 +65,8 @@ export function useConvexData() {
   const createChatRoomMutation = useMutation(api.chat.createChatRoom);
   const updateChatRoomMutation = useMutation(api.chat.updateChatRoom);
   const deleteChatRoomMutation = useMutation(api.chat.deleteChatRoom);
+  const createShareLinkMutation = useMutation(api.sharing.createShareLink);
+  const revokeShareLinkMutation = useMutation(api.sharing.revokeShareLink);
 
   const addMessageMutation = useMutation(api.chat.addMessage);
   const deleteMessageMutation = useMutation(api.chat.deleteMessage);
@@ -110,6 +113,7 @@ export function useConvexData() {
       model: cr.model,
       temperature: cr.temperature,
       maxResponders: cr.maxResponders,
+      shareId: cr.shareId,
       messages: [], // Messages loaded separately
     }));
   }, [convexChatRooms]);
@@ -211,6 +215,15 @@ export function useConvexData() {
     if (activeChatId === id) {
       setActiveChatId(null);
     }
+  };
+
+  // Create (or fetch) a public read-only share token for a chat.
+  const createShareLink = async (chatId: string): Promise<string> => {
+    return await createShareLinkMutation({ chatId: chatId as Id<"chatRooms"> });
+  };
+
+  const revokeShareLink = async (chatId: string): Promise<void> => {
+    await revokeShareLinkMutation({ chatId: chatId as Id<"chatRooms"> });
   };
 
   // Upload an arbitrary file to Convex storage; returns an Attachment reference
@@ -322,6 +335,8 @@ export function useConvexData() {
     addChatRoom,
     updateChatRoom,
     deleteChatRoom,
+    createShareLink,
+    revokeShareLink,
 
     // Avatar storage
     uploadAvatar,

@@ -79,4 +79,5 @@ export interface ChatRoom {
   model?: string; // chat-level default model (fallback between persona + user default)
   temperature?: number;
   maxResponders?: number; // cap on participants replying per user message
+  shareId?: string; // public read-only share token (absent = not shared)
 }
