@@ -4,6 +4,7 @@ import './index.css';
 import { ConvexClientProvider } from './ConvexClientProvider';
 import App from './App';
 import SharedChatView from './components/SharedChatView';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -16,8 +17,10 @@ const shareId = new URLSearchParams(window.location.search).get('share');
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <ConvexClientProvider>
-      {shareId ? <SharedChatView shareId={shareId} /> : <App />}
-    </ConvexClientProvider>
+    <ErrorBoundary>
+      <ConvexClientProvider>
+        {shareId ? <SharedChatView shareId={shareId} /> : <App />}
+      </ConvexClientProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 );
