@@ -35,11 +35,11 @@ const pickVoice = (seed: string, text: string): SpeechSynthesisVoice | undefined
   return list[hashString(seed) % list.length];
 };
 
-export const speak = (
-  text: string,
-  seed: string,
-  handlers?: { onend?: () => void; onerror?: () => void },
-): void => {
+type SpeakHandlers = { onend?: () => void; onerror?: () => void };
+
+// Web Speech fallback (free, no backend). Used directly when cloud TTS is
+// unavailable or fails.
+const speakWeb = (text: string, seed: string, handlers?: SpeakHandlers): void => {
   if (!ttsSupported() || !text.trim()) {
     handlers?.onerror?.();
     return;
@@ -58,6 +58,61 @@ export const speak = (
   window.speechSynthesis.speak(utterance);
 };
 
+// Cloud TTS playback state. `playToken` invalidates in-flight requests when a
+// new utterance starts or playback is stopped.
+let currentAudio: HTMLAudioElement | null = null;
+let currentUrl: string | null = null;
+let playToken = 0;
+
+const cleanupAudio = () => {
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.onended = null;
+    currentAudio.onerror = null;
+    currentAudio = null;
+  }
+  if (currentUrl) {
+    URL.revokeObjectURL(currentUrl);
+    currentUrl = null;
+  }
+};
+
+// Speak `text` for persona `seed`. Tries cloud TTS first (consistent voices),
+// falling back to Web Speech on any error so playback is never lost.
+export const speak = (text: string, seed: string, handlers?: SpeakHandlers): void => {
+  if (!text.trim()) {
+    handlers?.onerror?.();
+    return;
+  }
+  stopSpeaking();
+  const myToken = ++playToken;
+
+  fetch('/api/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, seed }),
+  })
+    .then(async (resp) => {
+      if (myToken !== playToken) return; // superseded by stop/new utterance
+      if (!resp.ok) throw new Error(`tts ${resp.status}`);
+      const blob = await resp.blob();
+      if (myToken !== playToken) return;
+      if (!blob.size) throw new Error('empty audio');
+      const url = URL.createObjectURL(blob);
+      currentUrl = url;
+      const audio = new Audio(url);
+      currentAudio = audio;
+      audio.onended = () => { if (myToken === playToken) { cleanupAudio(); handlers?.onend?.(); } };
+      audio.onerror = () => { if (myToken === playToken) { cleanupAudio(); speakWeb(text, seed, handlers); } };
+      await audio.play();
+    })
+    .catch(() => {
+      if (myToken === playToken) speakWeb(text, seed, handlers);
+    });
+};
+
 export const stopSpeaking = (): void => {
+  playToken++; // invalidate any in-flight cloud request
   if (ttsSupported()) window.speechSynthesis.cancel();
+  cleanupAudio();
 };

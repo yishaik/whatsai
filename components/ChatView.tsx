@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 
 import { ChatRoom, Persona, Message, Attachment, ReminderInput, UsageInfo } from '../types';
 import { USER_ID } from '../constants';
 import MessageBubble from './MessageBubble';
-import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon, XMarkIcon, PhoneIcon, PhotoIcon, ClockIcon } from './icons';
+import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon, XMarkIcon, PhoneIcon, PhotoIcon, ClockIcon, MicrophoneIcon } from './icons';
 import Avatar from './Avatar';
 import SourceViewerModal from './SourceViewerModal';
 // Lazy so @google/genai (the Live SDK) only loads when a call actually starts.
@@ -11,10 +11,21 @@ import { generatePersonaResponse, streamPersonaResponse } from '../services/gemi
 import { speak, stopSpeaking, ttsSupported } from '../services/speech';
 import { moderateText, describeCategories } from '../services/moderation';
 import { fetchSuggestions } from '../services/suggest';
+import { transcribeAudio } from '../services/transcribe';
+import { isSameDay } from '../services/time';
+import DateSeparator from './DateSeparator';
 
 // v1 attachments: images only, capped in count and size.
 const MAX_ATTACHMENTS = 4;
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
+// Text-based document attachments: read client-side and folded into the message
+// as context. (PDF/binary parsing is a follow-up — needs pdfjs.)
+const MAX_DOCS = 3;
+const MAX_DOC_BYTES = 256 * 1024; // 256KB raw
+const MAX_DOC_CHARS = 20000; // per-file char cap fed to the model
+const DOC_EXT_RE = /\.(txt|md|markdown|csv|tsv|json|jsonl|log|xml|ya?ml|ini|toml|ts|tsx|js|jsx|mjs|cjs|py|rb|go|rs|java|kt|c|h|cpp|cc|cs|php|sh|bash|sql|html?|css|scss)$/i;
+const isTextDoc = (f: File): boolean =>
+  f.type.startsWith('text/') || f.type === 'application/json' || DOC_EXT_RE.test(f.name);
 
 interface ChatViewProps {
   chatRoom: ChatRoom | null;
@@ -26,6 +37,7 @@ interface ChatViewProps {
   onGenerateImage: (prompt: string) => Promise<Attachment>;
   onScheduleReminder: (chatId: string, personaId: string, reminder: ReminderInput) => Promise<void>;
   onRecordUsage: (usage: UsageInfo) => void;
+  onDeleteMessage: (messageId: string) => Promise<unknown> | void;
   onClaimResponse: (chatId: string, triggerMessageId: string, personaId: string) => Promise<boolean>;
   onOpenReminders: () => void;
   onEditChat?: () => void;
@@ -81,7 +93,7 @@ const StreamingBubble: React.FC<{ persona: Persona; text: string }> = ({ persona
     </div>
 );
 
-const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, onSendMessage, onUploadFile, onGenerateImage, onScheduleReminder, onRecordUsage, onClaimResponse, onOpenReminders, onEditChat, onDeleteChat }) => {
+const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, onSendMessage, onUploadFile, onGenerateImage, onScheduleReminder, onRecordUsage, onDeleteMessage, onClaimResponse, onOpenReminders, onEditChat, onDeleteChat }) => {
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
@@ -92,6 +104,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
   const canSpeak = ttsSupported();
   const [viewingSourceUrl, setViewingSourceUrl] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingDocs, setPendingDocs] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
   const [moderating, setModerating] = useState(false);
@@ -99,6 +112,10 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const suggestAbortRef = useRef<AbortController | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -120,6 +137,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       setStreamingText({});
       setFailedPersonas([]);
       setPendingFiles([]);
+      setPendingDocs([]);
       setAttachError(null);
       setGeneratingImage(false);
       stopSpeaking();
@@ -134,6 +152,9 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     return () => {
       generationAbortRef.current?.abort();
       stopSpeaking();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
     };
   }, []);
 
@@ -162,22 +183,42 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     const files = Array.from(e.target.files ?? []);
     e.target.value = ''; // allow re-picking the same file later
     const errors: string[] = [];
-    const accepted: File[] = [];
+    const acceptedImages: File[] = [];
+    const acceptedDocs: File[] = [];
     for (const f of files) {
-      if (!f.type.startsWith('image/')) { errors.push(`${f.name}: only images are supported`); continue; }
-      if (f.size > MAX_FILE_BYTES) { errors.push(`${f.name}: over 10MB`); continue; }
-      accepted.push(f);
+      if (f.type.startsWith('image/')) {
+        if (f.size > MAX_FILE_BYTES) { errors.push(`${f.name}: over 10MB`); continue; }
+        acceptedImages.push(f);
+      } else if (isTextDoc(f)) {
+        if (f.size > MAX_DOC_BYTES) { errors.push(`${f.name}: text file over 256KB`); continue; }
+        acceptedDocs.push(f);
+      } else {
+        errors.push(`${f.name}: unsupported (images and text documents only)`);
+      }
     }
-    setPendingFiles(prev => {
-      const room = MAX_ATTACHMENTS - prev.length;
-      if (accepted.length > room) errors.push(`Up to ${MAX_ATTACHMENTS} images per message`);
-      return [...prev, ...accepted.slice(0, Math.max(0, room))];
-    });
+    if (acceptedImages.length) {
+      setPendingFiles(prev => {
+        const room = MAX_ATTACHMENTS - prev.length;
+        if (acceptedImages.length > room) errors.push(`Up to ${MAX_ATTACHMENTS} images per message`);
+        return [...prev, ...acceptedImages.slice(0, Math.max(0, room))];
+      });
+    }
+    if (acceptedDocs.length) {
+      setPendingDocs(prev => {
+        const room = MAX_DOCS - prev.length;
+        if (acceptedDocs.length > room) errors.push(`Up to ${MAX_DOCS} documents per message`);
+        return [...prev, ...acceptedDocs.slice(0, Math.max(0, room))];
+      });
+    }
     setAttachError(errors.length ? errors.join(' · ') : null);
   };
 
   const removePendingFile = (index: number) => {
     setPendingFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const removePendingDoc = (index: number) => {
+    setPendingDocs(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleGenerateImage = async () => {
@@ -206,7 +247,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     e.preventDefault();
     const text = inputText.trim();
     if (!chatRoom || typingPersonas.size !== 0 || !authReady || uploading || moderating) return;
-    if (!text && pendingFiles.length === 0) return;
+    if (!text && pendingFiles.length === 0 && pendingDocs.length === 0) return;
 
     setFailedPersonas([]);
 
@@ -237,10 +278,26 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       setUploading(false);
     }
 
+    // Fold attached text documents into the message as context for the model.
+    let finalText = text;
+    if (pendingDocs.length > 0) {
+      const parts: string[] = [];
+      for (const doc of pendingDocs) {
+        try {
+          const raw = await doc.text();
+          const clipped = raw.slice(0, MAX_DOC_CHARS);
+          parts.push(`\n\n[Attached document: ${doc.name}]\n${clipped}${raw.length > MAX_DOC_CHARS ? '\n…(truncated)' : ''}`);
+        } catch {
+          // skip unreadable doc
+        }
+      }
+      if (parts.length) finalText = (text + parts.join('')).trim();
+    }
+
     try {
       await onSendMessage(chatRoom.id, {
         authorId: USER_ID,
-        text,
+        text: finalText,
         sources: [],
         attachments: attachments.length ? attachments : undefined,
       });
@@ -251,6 +308,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     }
     setInputText('');
     setPendingFiles([]);
+    setPendingDocs([]);
     setAttachError(null);
     setMentionQuery(null);
   };
@@ -436,10 +494,102 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     ? chatPersonas.filter((p) => p.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 5)
     : [];
 
+  // Record a voice message, transcribe it (OpenAI whisper), and append the text
+  // to the composer. Toggling while recording stops and transcribes.
+  const handleMicClick = async () => {
+    if (recording) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setAttachError('Voice recording is not supported on this device.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      mediaRecorderRef.current = mr;
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setRecording(false);
+        const blob = new Blob(audioChunksRef.current, { type: mr.mimeType || 'audio/webm' });
+        if (blob.size === 0) return;
+        setTranscribing(true);
+        try {
+          const text = await transcribeAudio(blob);
+          if (text) setInputText((prev) => (prev ? prev + ' ' : '') + text);
+        } catch (err) {
+          setAttachError(`Transcription failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          setTranscribing(false);
+        }
+      };
+      mr.start();
+      setRecording(true);
+      setAttachError(null);
+    } catch {
+      setAttachError('Microphone permission was denied.');
+    }
+  };
+
   const handleStop = () => {
     generationAbortRef.current?.abort();
     setTypingPersonas(new Set());
     setStreamingText({});
+  };
+
+  // Regenerate one persona reply: delete it, then generate a fresh response for
+  // that persona against the conversation up to (but excluding) that reply.
+  const handleRegenerate = async (message: Message) => {
+    if (!chatRoom || isGenerating || message.authorId === USER_ID) return;
+    const persona = personasMap[message.authorId];
+    if (!persona) return;
+    const idx = chatRoom.messages.findIndex((m) => m.id === message.id);
+    if (idx < 0) return;
+    const history = chatRoom.messages.slice(0, idx);
+    const chatId = chatRoom.id;
+    const personasInChat = chatRoom.personaIds.map((id) => personasMap[id]).filter((p): p is Persona => Boolean(p));
+    const model = persona.model || chatRoom.model || defaultModel;
+
+    try {
+      await onDeleteMessage(message.id);
+    } catch (error) {
+      console.error('Failed to delete message for regenerate:', error);
+      return;
+    }
+
+    const controller = new AbortController();
+    generationAbortRef.current = controller;
+    const { signal } = controller;
+    setTypingPersonas((prev) => new Set(prev).add(persona.id));
+    try {
+      let response: Awaited<ReturnType<typeof streamPersonaResponse>>;
+      try {
+        response = await streamPersonaResponse(
+          persona, chatRoom.topic, history, personasInChat, personasMap, model, [],
+          (full) => { if (!signal.aborted) setStreamingText((prev) => ({ ...prev, [persona.id]: full })); },
+          chatRoom.temperature, chatRoom.summary, signal,
+        );
+      } catch (streamError) {
+        if (signal.aborted) return;
+        response = await generatePersonaResponse(persona, chatRoom.topic, history, personasInChat, personasMap, model, [], chatRoom.temperature, chatRoom.summary, signal);
+      }
+      if (signal.aborted) return;
+      const outMod = await moderateText(response.text);
+      if (signal.aborted) return;
+      const replyText = outMod.flagged ? '⚠️ This reply was withheld (content policy).' : response.text;
+      onSendMessage(chatId, { authorId: persona.id, text: replyText, sources: outMod.flagged ? [] : response.sources });
+      if (response.usage) onRecordUsage(response.usage);
+    } catch (error) {
+      if (signal.aborted) return;
+      console.error('Regenerate failed for', persona.name, error);
+      setFailedPersonas((prev) => [...prev, persona.name]);
+    } finally {
+      setStreamingText((prev) => { const next = { ...prev }; delete next[persona.id]; return next; });
+      setTypingPersonas((prev) => { const s = new Set(prev); s.delete(persona.id); return s; });
+    }
   };
 
   const isGenerating = typingPersonas.size > 0;
@@ -551,18 +701,26 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       </header>
 
       <main className="flex-1 overflow-y-auto p-3 md:p-6 space-y-3 md:space-y-4">
-        {chatRoom.messages.map(msg => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            persona={msg.authorId !== USER_ID ? personasMap[msg.authorId] : null}
-            isOwnMessage={msg.authorId === USER_ID}
-            onSourceClick={setViewingSourceUrl}
-            canSpeak={canSpeak}
-            isSpeaking={speakingId === msg.id}
-            onToggleSpeak={() => handleToggleSpeak(msg)}
-          />
-        ))}
+        {chatRoom.messages.map((msg, i) => {
+          const prev = i > 0 ? chatRoom.messages[i - 1] : null;
+          const showSeparator = !prev || !isSameDay(prev.timestamp, msg.timestamp);
+          return (
+            <React.Fragment key={msg.id}>
+              {showSeparator && <DateSeparator ts={msg.timestamp} />}
+              <MessageBubble
+                message={msg}
+                persona={msg.authorId !== USER_ID ? personasMap[msg.authorId] : null}
+                isOwnMessage={msg.authorId === USER_ID}
+                onSourceClick={setViewingSourceUrl}
+                canSpeak={canSpeak}
+                isSpeaking={speakingId === msg.id}
+                onToggleSpeak={() => handleToggleSpeak(msg)}
+                onRegenerate={msg.authorId !== USER_ID ? () => handleRegenerate(msg) : undefined}
+                canRegenerate={!isGenerating && authReady}
+              />
+            </React.Fragment>
+          );
+        })}
         {Array.from(typingPersonas).map(id => {
             const persona = personasMap[id];
             if (!persona) return null;
@@ -613,6 +771,19 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
             ))}
           </div>
         )}
+        {pendingDocs.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {pendingDocs.map((doc, i) => (
+              <span key={`${doc.name}-${i}`} className="flex items-center gap-1.5 bg-item-active-bg rounded-md pl-2 pr-1 py-1 text-xs text-text-primary">
+                <PaperClipIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="max-w-[10rem] truncate">{doc.name}</span>
+                <button type="button" onClick={() => removePendingDoc(i)} className="text-icon-default hover:text-red-500 p-0.5" title="Remove">
+                  <XMarkIcon className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         {attachError && (
           <p className="text-xs text-red-400 mb-2">{attachError}</p>
         )}
@@ -634,16 +805,32 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,text/*,.md,.markdown,.csv,.tsv,.json,.jsonl,.log,.xml,.yaml,.yml,.ini,.toml,.ts,.tsx,.js,.jsx,.py,.rb,.go,.rs,.java,.c,.h,.cpp,.cs,.php,.sh,.sql,.html,.css"
             multiple
             onChange={handleFilesSelected}
             className="hidden"
           />
           <button
             type="button"
+            onClick={handleMicClick}
+            disabled={isGenerating || !authReady || uploading || generatingImage || transcribing || moderating}
+            title={recording ? 'Stop recording' : 'Record a voice message'}
+            className={`p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${recording ? 'text-red-500 animate-pulse' : 'text-icon-default hover:text-icon-strong'}`}
+          >
+            {transcribing ? (
+              <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+              </svg>
+            ) : (
+              <MicrophoneIcon className="h-6 w-6" />
+            )}
+          </button>
+          <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isGenerating || !authReady || uploading || generatingImage || pendingFiles.length >= MAX_ATTACHMENTS}
-            title="Attach images"
+            disabled={isGenerating || !authReady || uploading || generatingImage || (pendingFiles.length >= MAX_ATTACHMENTS && pendingDocs.length >= MAX_DOCS)}
+            title="Attach images or text documents"
             className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <PaperClipIcon className="h-6 w-6" />
@@ -674,7 +861,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
           />
           <button
             type="submit"
-            disabled={(!inputText.trim() && pendingFiles.length === 0) || isGenerating || !authReady || uploading || generatingImage || moderating}
+            disabled={(!inputText.trim() && pendingFiles.length === 0 && pendingDocs.length === 0) || isGenerating || !authReady || uploading || generatingImage || moderating}
             className={`rounded-full p-3 text-white transition flex-shrink-0 ${
               isGenerating || uploading || moderating
                 ? 'bg-gray-500 cursor-not-allowed'
@@ -702,7 +889,8 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       {callPersona && (
         <Suspense fallback={null}>
           <VoiceCallOverlay
-            persona={callPersona}
+            personas={chatPersonas}
+            initialPersona={callPersona}
             chatTopic={chatRoom.topic}
             onClose={() => setCallPersona(null)}
           />

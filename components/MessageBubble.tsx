@@ -1,7 +1,7 @@
 import React from 'react';
 import { Message, Persona, Source, Attachment } from '../types';
 import Avatar from './Avatar';
-import { LinkIcon, PaperClipIcon, SpeakerWaveIcon } from './icons';
+import { LinkIcon, PaperClipIcon, SpeakerWaveIcon, ArrowPathIcon } from './icons';
 import LinkPreviewCard from './LinkPreviewCard';
 
 // Up to 3 unique http(s) URLs in a message (mirrors convex/links.ts extractUrls).
@@ -19,7 +19,18 @@ interface MessageBubbleProps {
   canSpeak?: boolean;
   isSpeaking?: boolean;
   onToggleSpeak?: () => void;
+  onRegenerate?: () => void;
+  canRegenerate?: boolean;
 }
+
+// Short, locale-aware time (e.g. "2:34 PM") for a message timestamp.
+const formatTime = (ts: number): string => {
+  try {
+    return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+};
 
 const getDomain = (url: string) => {
   try {
@@ -73,7 +84,7 @@ const AttachmentView: React.FC<{ attachment: Attachment }> = ({ attachment }) =>
   );
 };
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMessage, onSourceClick, canSpeak, isSpeaking, onToggleSpeak }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMessage, onSourceClick, canSpeak, isSpeaking, onToggleSpeak, onRegenerate, canRegenerate }) => {
   const alignment = isOwnMessage ? 'justify-end' : 'justify-start';
   const bubbleColor = isOwnMessage ? 'bg-message-out' : 'bg-message-in';
   const authorName = isOwnMessage ? 'You' : persona?.name || 'Unknown';
@@ -99,6 +110,16 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
                         className={`p-0.5 rounded-full transition-colors ${isSpeaking ? 'text-accent-green animate-pulse' : 'text-icon-default hover:text-icon-strong'}`}
                     >
                         <SpeakerWaveIcon className="h-4 w-4" />
+                    </button>
+                )}
+                {onRegenerate && (
+                    <button
+                        onClick={onRegenerate}
+                        disabled={!canRegenerate}
+                        title="Regenerate reply"
+                        className="p-0.5 rounded-full text-icon-default hover:text-icon-strong transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        <ArrowPathIcon className="h-4 w-4" />
                     </button>
                 )}
             </div>
@@ -129,6 +150,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
             ))}
           </div>
         )}
+        <span className={`text-[10px] text-text-secondary mt-0.5 px-1 ${isOwnMessage ? 'self-end' : 'self-start'}`}>
+          {formatTime(message.timestamp)}
+        </span>
       </div>
     </div>
   );

@@ -48,6 +48,8 @@ const IP_RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
   moderate: { limit: 200, windowMs: 60_000 }, // /api/moderate (cheap; called per message + reply)
   summarize: { limit: 60, windowMs: 60_000 }, // /api/summarize (server-triggered for long chats)
   suggest: { limit: 120, windowMs: 60_000 }, // /api/suggest (reply suggestions)
+  transcribe: { limit: 60, windowMs: 60_000 }, // /api/transcribe (voice-message STT)
+  tts: { limit: 120, windowMs: 60_000 }, // /api/tts (cloud text-to-speech)
 };
 
 // Core fixed-window consume for an arbitrary key. Returns false if exhausted.
