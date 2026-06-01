@@ -117,6 +117,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Track which user messages have already triggered AI responses
@@ -483,6 +484,16 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     const m = v.match(/@([^\s@]*)$/);
     setMentionQuery(m ? m[1] : null);
   };
+
+  // Auto-grow the composer textarea to fit its content (up to a max height,
+  // after which it scrolls). Runs whenever the text changes, including when
+  // it's cleared after sending or filled by transcription.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [inputText]);
   const completeMention = (name: string) => {
     setInputText((prev) => prev.replace(/@[^\s@]*$/, '@' + name + ' '));
     setMentionQuery(null);
@@ -801,7 +812,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
             ))}
           </div>
         )}
-        <form onSubmit={handleSendMessage} className="flex items-center gap-3">
+        <form onSubmit={handleSendMessage} className="flex items-end gap-1.5 sm:gap-3">
           <input
             ref={fileInputRef}
             type="file"
@@ -851,13 +862,22 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
               <PhotoIcon className="h-6 w-6" />
             )}
           </button>
-          <input
-            type="text"
+          <textarea
+            ref={textareaRef}
+            rows={1}
             value={inputText}
             onChange={(e) => handleInputChange(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter sends; Shift+Enter inserts a newline. Skip while an IME
+              // composition is active so CJK input isn't cut off mid-word.
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                handleSendMessage(e);
+              }
+            }}
             placeholder={!authReady ? "Connecting..." : isGenerating ? "AI is responding..." : uploading ? "Uploading..." : generatingImage ? "Generating image..." : moderating ? "Checking…" : "Type a message, @mention a persona, or describe an image..."}
             disabled={isGenerating || !authReady || uploading || generatingImage || moderating}
-            className="flex-1 bg-item-active-bg rounded-lg p-3 text-text-primary outline-none focus:ring-2 focus:ring-accent-green disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 min-w-0 resize-none max-h-40 overflow-y-auto bg-item-active-bg rounded-lg p-3 text-text-primary outline-none focus:ring-2 focus:ring-accent-green disabled:opacity-50 disabled:cursor-not-allowed leading-snug"
           />
           <button
             type="submit"

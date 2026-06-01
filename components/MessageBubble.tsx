@@ -133,7 +133,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
         )}
         {message.text && (
           <div className={`px-4 py-2 rounded-lg text-text-primary ${bubbleColor}`}>
-            <p className="whitespace-pre-wrap">{message.text}</p>
+            <p className="whitespace-pre-wrap break-words">{message.text}</p>
           </div>
         )}
         {message.sources && message.sources.length > 0 && (

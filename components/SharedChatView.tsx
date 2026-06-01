@@ -62,7 +62,7 @@ const SharedChatView: React.FC<{ shareId: string }> = ({ shareId }) => {
                         <p key={j} className="text-xs text-text-secondary">📎 {a.name}</p>
                       ),
                     )}
-                    {m.text && <p className="whitespace-pre-wrap">{m.text}</p>}
+                    {m.text && <p className="whitespace-pre-wrap break-words">{m.text}</p>}
                     {m.sources.length > 0 && (
                       <div className="mt-2 pt-2 border-t border-white/10 space-y-1">
                         {m.sources.map((s, j) => (
