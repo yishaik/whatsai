@@ -107,7 +107,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
                     <button
                         onClick={onToggleSpeak}
                         title={isSpeaking ? 'Stop' : 'Read aloud'}
-                        className={`p-0.5 rounded-full transition-colors ${isSpeaking ? 'text-accent-green animate-pulse' : 'text-icon-default hover:text-icon-strong'}`}
+                        className={`p-1.5 -m-0.5 rounded-full transition-colors ${isSpeaking ? 'text-accent-green animate-pulse' : 'text-icon-default hover:text-icon-strong'}`}
                     >
                         <SpeakerWaveIcon className="h-4 w-4" />
                     </button>
@@ -117,7 +117,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
                         onClick={onRegenerate}
                         disabled={!canRegenerate}
                         title="Regenerate reply"
-                        className="p-0.5 rounded-full text-icon-default hover:text-icon-strong transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="p-1.5 -m-0.5 rounded-full text-icon-default hover:text-icon-strong transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                         <ArrowPathIcon className="h-4 w-4" />
                     </button>

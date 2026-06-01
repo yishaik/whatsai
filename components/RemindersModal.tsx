@@ -67,7 +67,7 @@ const RemindersModal: React.FC<RemindersModalProps> = ({ isOpen, onClose, remind
   const sorted = [...reminders].sort((a, b) => a.nextRunAt - b.nextRunAt);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50">
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
       <div className="bg-panel-bg rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
         <div className="p-4 border-b border-item-hover-bg flex justify-between items-center">
           <h2 className="text-xl font-bold text-text-primary flex items-center gap-2">

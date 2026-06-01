@@ -29,14 +29,10 @@ const ChatListItem: React.FC<{
   onClick: () => void;
   onDelete: () => void;
 }> = ({ chat, isActive, onClick, onDelete }) => {
-  const [showDelete, setShowDelete] = React.useState(false);
-
   return (
     <div
       onClick={onClick}
-      onMouseEnter={() => setShowDelete(true)}
-      onMouseLeave={() => setShowDelete(false)}
-      className={`flex items-center gap-3 p-3 cursor-pointer transition-colors border-b border-item-hover-bg ${isActive ? 'bg-item-active-bg' : 'hover:bg-item-hover-bg'}`}
+      className={`group flex items-center gap-3 p-3 cursor-pointer transition-colors border-b border-item-hover-bg ${isActive ? 'bg-item-active-bg' : 'hover:bg-item-hover-bg'}`}
     >
       <Avatar src={chat.avatar} seed={chat.topic} size={48} />
       <div className="flex-1 overflow-hidden">
@@ -57,15 +53,13 @@ const ChatListItem: React.FC<{
           {chat.lastMessageText ? truncate(chat.lastMessageText, 30) : 'No messages yet'}
         </p>
       </div>
-      {showDelete && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="text-icon-default hover:text-red-500 p-1 rounded flex-shrink-0 transition-colors"
-          title="Delete chat"
-        >
-          <TrashIcon className="h-5 w-5" />
-        </button>
-      )}
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        className="text-icon-default hover:text-red-500 p-2 rounded-full flex-shrink-0 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
+        title="Delete chat"
+      >
+        <TrashIcon className="h-5 w-5" />
+      </button>
     </div>
   );
 };
@@ -96,7 +90,7 @@ const ChatList: React.FC<ChatListProps> = ({
         className={`
           fixed top-0 left-0 z-40 h-[100dvh]
           md:relative md:top-auto md:left-auto md:z-auto md:h-full
-          w-[85%] max-w-sm md:w-full md:max-w-none md:w-1/3 lg:w-1/4
+          w-[85%] max-w-sm md:max-w-none md:w-1/3 lg:w-1/4
           bg-panel-bg border-r border-item-hover-bg flex flex-col
           transition-transform duration-300 ease-in-out
           ${isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
