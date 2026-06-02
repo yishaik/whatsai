@@ -147,8 +147,8 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50">
-      <div className="bg-panel-bg rounded-lg shadow-xl w-full max-w-lg">
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
+      <div className="bg-panel-bg rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="p-4 border-b border-item-hover-bg flex justify-between items-center">
           <h2 className="text-xl font-bold text-text-primary">Edit Chat</h2>
           <button onClick={onClose} className="text-icon-default hover:text-text-primary">
@@ -156,8 +156,8 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
           </button>
         </div>
         <form onSubmit={handleSubmit}>
-          <div className="p-6 space-y-6">
-            <div className="flex items-center gap-4">
+          <div className="p-4 sm:p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
               <Avatar 
                 src={chatRoom.avatar} 
                 seed={chatRoom.topic} 
@@ -199,7 +199,7 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
                     }`}
                   >
                     <Avatar src={p.avatar} name={p.name} />
-                    <span className={`font-medium ${selectedPersonaIds.has(p.id) ? 'text-white' : 'text-text-primary'}`}>
+                    <span className={`font-medium flex-1 min-w-0 truncate ${selectedPersonaIds.has(p.id) ? 'text-white' : 'text-text-primary'}`}>
                       {p.name}
                     </span>
                   </div>
@@ -340,7 +340,7 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
             </div>
           </div>
 
-          <div className="p-4 bg-panel-header-bg rounded-b-lg flex justify-end gap-3">
+          <div className="p-4 bg-panel-header-bg rounded-b-lg flex flex-col-reverse sm:flex-row sm:justify-end gap-2 sm:gap-3">
             <button
               type="button"
               onClick={onClose}

@@ -107,7 +107,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
                     <button
                         onClick={onToggleSpeak}
                         title={isSpeaking ? 'Stop' : 'Read aloud'}
-                        className={`p-0.5 rounded-full transition-colors ${isSpeaking ? 'text-accent-green animate-pulse' : 'text-icon-default hover:text-icon-strong'}`}
+                        className={`p-1.5 -m-0.5 rounded-full transition-colors ${isSpeaking ? 'text-accent-green animate-pulse' : 'text-icon-default hover:text-icon-strong'}`}
                     >
                         <SpeakerWaveIcon className="h-4 w-4" />
                     </button>
@@ -117,7 +117,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
                         onClick={onRegenerate}
                         disabled={!canRegenerate}
                         title="Regenerate reply"
-                        className="p-0.5 rounded-full text-icon-default hover:text-icon-strong transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="p-1.5 -m-0.5 rounded-full text-icon-default hover:text-icon-strong transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                         <ArrowPathIcon className="h-4 w-4" />
                     </button>
@@ -133,7 +133,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
         )}
         {message.text && (
           <div className={`px-4 py-2 rounded-lg text-text-primary ${bubbleColor}`}>
-            <p className="whitespace-pre-wrap">{message.text}</p>
+            <p className="whitespace-pre-wrap break-words">{message.text}</p>
           </div>
         )}
         {message.sources && message.sources.length > 0 && (

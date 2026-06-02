@@ -53,8 +53,8 @@ const CreateChatModal: React.FC<CreateChatModalProps> = ({ isOpen, onClose, pers
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50">
-      <div className="bg-panel-bg rounded-lg shadow-xl w-full max-w-lg">
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
+      <div className="bg-panel-bg rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="p-4 border-b border-item-hover-bg flex justify-between items-center">
           <h2 className="text-xl font-bold text-text-primary">Create New Chat</h2>
           <button onClick={onClose} className="text-icon-default hover:text-text-primary">
@@ -62,7 +62,7 @@ const CreateChatModal: React.FC<CreateChatModalProps> = ({ isOpen, onClose, pers
           </button>
         </div>
         <form onSubmit={handleSubmit}>
-          <div className="p-6 space-y-6">
+          <div className="p-4 sm:p-6 space-y-6">
             <div>
               <label htmlFor="chat-topic" className="block text-sm font-medium text-text-secondary mb-1">Chat Topic</label>
               <input
@@ -99,7 +99,7 @@ const CreateChatModal: React.FC<CreateChatModalProps> = ({ isOpen, onClose, pers
                       className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition ${selectedPersonaIds.has(p.id) ? 'bg-accent-green' : 'bg-item-active-bg hover:bg-item-hover-bg'}`}
                     >
                       <Avatar src={p.avatar} name={p.name} />
-                      <span className={`font-medium ${selectedPersonaIds.has(p.id) ? 'text-white' : 'text-text-primary'}`}>{p.name}</span>
+                      <span className={`font-medium flex-1 min-w-0 truncate ${selectedPersonaIds.has(p.id) ? 'text-white' : 'text-text-primary'}`}>{p.name}</span>
                     </div>
                   ))
                 )}

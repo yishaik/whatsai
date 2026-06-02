@@ -176,7 +176,7 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50">
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
       <div className="bg-panel-bg rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         <div className="p-4 border-b border-item-hover-bg flex justify-between items-center">
           <h2 className="text-xl font-bold text-text-primary">Manage Personas</h2>
@@ -185,7 +185,7 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
           </button>
         </div>
 
-        <div className="flex-grow overflow-y-auto p-6 space-y-6">
+        <div className="flex-grow overflow-y-auto p-4 sm:p-6 space-y-6">
           <div>
             <h3 className="text-lg font-semibold text-text-primary mb-4">
               {editingPersonaId ? 'Edit Persona' : 'Create New Persona'}
@@ -279,7 +279,7 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
                   <p className="text-xs text-yellow-500/80 mt-1">Note: web search only works on Gemini models; it'll be ignored on GPT.</p>
                 )}
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
                  {editingPersonaId && (
                   <button 
                     type="button" 
