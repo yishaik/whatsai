@@ -605,6 +605,15 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
 
   const isGenerating = typingPersonas.size > 0;
 
+  // WhatsApp-style merged trailing button: show Send once there's something to
+  // send, otherwise show the mic (record). While recording/transcribing we keep
+  // the mic slot so the user can stop. Merging the two frees row width on phones
+  // so the send action is never pushed off-screen.
+  const showSend =
+    !recording &&
+    !transcribing &&
+    (inputText.trim().length > 0 || pendingFiles.length > 0 || pendingDocs.length > 0);
+
   // Fetch suggested next messages when it's the user's turn (chat empty, or the
   // last message is from a persona) and nothing is generating. Fails soft.
   useEffect(() => {
@@ -639,7 +648,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
   }
 
   return (
-    <div className="w-full md:w-2/3 lg:w-3/4 flex flex-col bg-chat-bg">
+    <div className="w-full md:w-2/3 lg:w-3/4 min-w-0 flex flex-col bg-chat-bg">
       <header className="p-3 bg-panel-header-bg flex items-center gap-4 h-[60px] border-l border-black">
         <Avatar src={chatRoom.avatar} seed={chatRoom.topic} size={40} />
         <div className="flex-1 min-w-0">
@@ -823,26 +832,10 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
           />
           <button
             type="button"
-            onClick={handleMicClick}
-            disabled={isGenerating || !authReady || uploading || generatingImage || transcribing || moderating}
-            title={recording ? 'Stop recording' : 'Record a voice message'}
-            className={`p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${recording ? 'text-red-500 animate-pulse' : 'text-icon-default hover:text-icon-strong'}`}
-          >
-            {transcribing ? (
-              <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-              </svg>
-            ) : (
-              <MicrophoneIcon className="h-6 w-6" />
-            )}
-          </button>
-          <button
-            type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isGenerating || !authReady || uploading || generatingImage || (pendingFiles.length >= MAX_ATTACHMENTS && pendingDocs.length >= MAX_DOCS)}
             title="Attach images or text documents"
-            className="text-icon-default hover:text-icon-strong p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="text-icon-default hover:text-icon-strong p-1.5 sm:p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <PaperClipIcon className="h-6 w-6" />
           </button>
@@ -851,7 +844,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
             onClick={handleGenerateImage}
             disabled={!inputText.trim() || isGenerating || !authReady || uploading || generatingImage}
             title="Generate an image from your text"
-            className="text-icon-default hover:text-accent-blue p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="text-icon-default hover:text-accent-blue p-1.5 sm:p-2 rounded-full hover:bg-item-hover-bg flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {generatingImage ? (
               <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -879,24 +872,48 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
             disabled={isGenerating || !authReady || uploading || generatingImage || moderating}
             className="flex-1 min-w-0 resize-none max-h-40 overflow-y-auto bg-item-active-bg rounded-lg p-3 text-text-primary outline-none focus:ring-2 focus:ring-accent-green disabled:opacity-50 disabled:cursor-not-allowed leading-snug"
           />
-          <button
-            type="submit"
-            disabled={(!inputText.trim() && pendingFiles.length === 0 && pendingDocs.length === 0) || isGenerating || !authReady || uploading || generatingImage || moderating}
-            className={`rounded-full p-3 text-white transition flex-shrink-0 ${
-              isGenerating || uploading || moderating
-                ? 'bg-gray-500 cursor-not-allowed'
-                : 'bg-accent-green hover:bg-opacity-90 disabled:bg-gray-500 disabled:cursor-not-allowed'
-            }`}
-          >
-            {isGenerating || uploading || moderating ? (
-              <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-            ) : (
-              <SendIcon className="h-6 w-6" />
-            )}
-          </button>
+          {showSend ? (
+            <button
+              type="submit"
+              disabled={isGenerating || !authReady || uploading || generatingImage || moderating}
+              title="Send"
+              className={`rounded-full p-2.5 sm:p-3 text-white transition flex-shrink-0 ${
+                isGenerating || uploading || moderating
+                  ? 'bg-gray-500 cursor-not-allowed'
+                  : 'bg-accent-green hover:bg-opacity-90 disabled:bg-gray-500 disabled:cursor-not-allowed'
+              }`}
+            >
+              {isGenerating || uploading || moderating ? (
+                <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              ) : (
+                <SendIcon className="h-6 w-6" />
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleMicClick}
+              disabled={isGenerating || !authReady || uploading || generatingImage || moderating}
+              title={recording ? 'Stop recording' : 'Record a voice message'}
+              className={`rounded-full p-2.5 sm:p-3 transition flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
+                recording
+                  ? 'bg-red-500 text-white animate-pulse'
+                  : 'bg-item-active-bg text-icon-default hover:text-icon-strong hover:bg-item-hover-bg'
+              }`}
+            >
+              {transcribing ? (
+                <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+              ) : (
+                <MicrophoneIcon className="h-6 w-6" />
+              )}
+            </button>
+          )}
         </form>
       </footer>
       

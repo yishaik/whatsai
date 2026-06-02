@@ -190,7 +190,7 @@ const App: React.FC = () => {
   }, [activeChatId, chatRooms, activeChatMessages]);
 
   return (
-    <div className="h-[100dvh] w-screen bg-gray-900 text-white flex flex-col antialiased">
+    <div className="h-[100dvh] w-full overflow-x-hidden bg-gray-900 text-white flex flex-col antialiased">
       {/* Mobile top bar */}
       <div className="md:hidden bg-panel-header-bg px-3 py-2 flex items-center gap-3">
         <button
