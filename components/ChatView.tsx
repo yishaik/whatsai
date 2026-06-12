@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChatRoom, Persona, Message, Attachment, ReminderInput, UsageInfo } from '../types';
 import { USER_ID } from '../constants';
 import MessageBubble from './MessageBubble';
@@ -119,6 +120,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollParentRef = useRef<HTMLDivElement>(null);
 
   // Track which user messages have already triggered AI responses
   const respondedToRef = useRef<Set<string>>(new Set());
@@ -159,7 +161,11 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     };
   }, []);
 
-  const handleToggleSpeak = (msg: Message) => {
+  const isGenerating = typingPersonas.size > 0;
+
+  // Stable across streamed-token re-renders (deps don't change mid-stream) so
+  // memoized MessageBubbles aren't invalidated on every chunk.
+  const handleToggleSpeak = useCallback((msg: Message) => {
     if (speakingId === msg.id) {
       stopSpeaking();
       setSpeakingId(null);
@@ -170,7 +176,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       onend: () => setSpeakingId(prev => (prev === msg.id ? null : prev)),
       onerror: () => setSpeakingId(prev => (prev === msg.id ? null : prev)),
     });
-  };
+  }, [speakingId]);
   
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -553,7 +559,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
 
   // Regenerate one persona reply: delete it, then generate a fresh response for
   // that persona against the conversation up to (but excluding) that reply.
-  const handleRegenerate = async (message: Message) => {
+  const handleRegenerate = useCallback(async (message: Message) => {
     if (!chatRoom || isGenerating || message.authorId === USER_ID) return;
     const persona = personasMap[message.authorId];
     if (!persona) return;
@@ -601,9 +607,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       setStreamingText((prev) => { const next = { ...prev }; delete next[persona.id]; return next; });
       setTypingPersonas((prev) => { const s = new Set(prev); s.delete(persona.id); return s; });
     }
-  };
-
-  const isGenerating = typingPersonas.size > 0;
+  }, [chatRoom, isGenerating, personasMap, defaultModel, onDeleteMessage, onSendMessage, onRecordUsage]);
 
   // WhatsApp-style merged trailing button: show Send once there's something to
   // send, otherwise show the mic (record). While recording/transcribing we keep
@@ -636,6 +640,19 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatRoom?.id, chatRoom?.messages.length, isGenerating]);
+
+  // Virtualize the message history: only the visible window of bubbles is
+  // mounted, so chats up to the 200-message server cap stay cheap to render and
+  // re-render. Heights are measured dynamically (bubbles vary: text, images,
+  // sources, link previews, date separators).
+  const messages = chatRoom?.messages ?? [];
+  const rowVirtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => 96,
+    overscan: 10,
+    getItemKey: (index) => messages[index].id,
+  });
 
   if (!chatRoom) {
     return (
@@ -720,27 +737,39 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
         )}
       </header>
 
-      <main className="flex-1 overflow-y-auto p-3 md:p-6 space-y-3 md:space-y-4">
-        {chatRoom.messages.map((msg, i) => {
-          const prev = i > 0 ? chatRoom.messages[i - 1] : null;
-          const showSeparator = !prev || !isSameDay(prev.timestamp, msg.timestamp);
-          return (
-            <React.Fragment key={msg.id}>
-              {showSeparator && <DateSeparator ts={msg.timestamp} />}
-              <MessageBubble
-                message={msg}
-                persona={msg.authorId !== USER_ID ? personasMap[msg.authorId] : null}
-                isOwnMessage={msg.authorId === USER_ID}
-                onSourceClick={setViewingSourceUrl}
-                canSpeak={canSpeak}
-                isSpeaking={speakingId === msg.id}
-                onToggleSpeak={() => handleToggleSpeak(msg)}
-                onRegenerate={msg.authorId !== USER_ID ? () => handleRegenerate(msg) : undefined}
-                canRegenerate={!isGenerating && authReady}
-              />
-            </React.Fragment>
-          );
-        })}
+      <main ref={scrollParentRef} className="flex-1 overflow-y-auto p-3 md:p-6">
+        <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
+          {rowVirtualizer.getVirtualItems().map(virtualRow => {
+            const i = virtualRow.index;
+            const msg = messages[i];
+            const prev = i > 0 ? messages[i - 1] : null;
+            const showSeparator = !prev || !isSameDay(prev.timestamp, msg.timestamp);
+            return (
+              <div
+                key={virtualRow.key}
+                data-index={i}
+                ref={rowVirtualizer.measureElement}
+                className="pb-3 md:pb-4"
+                style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${virtualRow.start}px)` }}
+              >
+                {showSeparator && <DateSeparator ts={msg.timestamp} />}
+                <MessageBubble
+                  message={msg}
+                  persona={msg.authorId !== USER_ID ? personasMap[msg.authorId] : null}
+                  isOwnMessage={msg.authorId === USER_ID}
+                  onSourceClick={setViewingSourceUrl}
+                  canSpeak={canSpeak}
+                  isSpeaking={speakingId === msg.id}
+                  onToggleSpeak={handleToggleSpeak}
+                  onRegenerate={handleRegenerate}
+                  showRegenerate={msg.authorId !== USER_ID}
+                  canRegenerate={!isGenerating && authReady}
+                />
+              </div>
+            );
+          })}
+        </div>
+        <div className="space-y-3 md:space-y-4 pt-1">
         {Array.from(typingPersonas).map(id => {
             const persona = personasMap[id];
             if (!persona) return null;
@@ -754,6 +783,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                 ⚠️ {name} couldn't respond. Please try again.
             </div>
         ))}
+        </div>
         <div ref={messagesEndRef} />
       </main>
 
