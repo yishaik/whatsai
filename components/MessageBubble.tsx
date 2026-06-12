@@ -18,8 +18,11 @@ interface MessageBubbleProps {
   onSourceClick: (url: string) => void;
   canSpeak?: boolean;
   isSpeaking?: boolean;
-  onToggleSpeak?: () => void;
-  onRegenerate?: () => void;
+  // Take the message so the parent can pass ONE stable handler for every bubble
+  // (inline per-message closures would defeat React.memo below).
+  onToggleSpeak?: (message: Message) => void;
+  onRegenerate?: (message: Message) => void;
+  showRegenerate?: boolean;
   canRegenerate?: boolean;
 }
 
@@ -84,7 +87,7 @@ const AttachmentView: React.FC<{ attachment: Attachment }> = ({ attachment }) =>
   );
 };
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMessage, onSourceClick, canSpeak, isSpeaking, onToggleSpeak, onRegenerate, canRegenerate }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMessage, onSourceClick, canSpeak, isSpeaking, onToggleSpeak, onRegenerate, showRegenerate, canRegenerate }) => {
   const alignment = isOwnMessage ? 'justify-end' : 'justify-start';
   const bubbleColor = isOwnMessage ? 'bg-message-out' : 'bg-message-in';
   const authorName = isOwnMessage ? 'You' : persona?.name || 'Unknown';
@@ -105,16 +108,16 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
                 <span className={`text-sm font-bold ${authorColor}`}>{authorName}</span>
                 {canSpeak && onToggleSpeak && message.text && (
                     <button
-                        onClick={onToggleSpeak}
+                        onClick={() => onToggleSpeak(message)}
                         title={isSpeaking ? 'Stop' : 'Read aloud'}
                         className={`p-1.5 -m-0.5 rounded-full transition-colors ${isSpeaking ? 'text-accent-green animate-pulse' : 'text-icon-default hover:text-icon-strong'}`}
                     >
                         <SpeakerWaveIcon className="h-4 w-4" />
                     </button>
                 )}
-                {onRegenerate && (
+                {showRegenerate && onRegenerate && (
                     <button
-                        onClick={onRegenerate}
+                        onClick={() => onRegenerate(message)}
                         disabled={!canRegenerate}
                         title="Regenerate reply"
                         className="p-1.5 -m-0.5 rounded-full text-icon-default hover:text-icon-strong transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
@@ -158,4 +161,6 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, persona, isOwnMe
   );
 };
 
-export default MessageBubble;
+// Memoized: replies stream token-by-token (parent re-renders on every chunk),
+// so without this every bubble in the history would re-render per token.
+export default React.memo(MessageBubble);

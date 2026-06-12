@@ -28,7 +28,7 @@ const ChatListItem: React.FC<{
   isActive: boolean;
   onClick: () => void;
   onDelete: () => void;
-}> = ({ chat, isActive, onClick, onDelete }) => {
+}> = React.memo(({ chat, isActive, onClick, onDelete }) => {
   return (
     <div
       onClick={onClick}
@@ -62,7 +62,18 @@ const ChatListItem: React.FC<{
       </button>
     </div>
   );
-};
+}, (prev, next) =>
+  // Convex hands back fresh chat objects on every query update, so compare the
+  // fields this row actually renders. Callbacks are treated as stable (ignored).
+  prev.isActive === next.isActive &&
+  prev.chat.id === next.chat.id &&
+  prev.chat.topic === next.chat.topic &&
+  prev.chat.avatar === next.chat.avatar &&
+  prev.chat.visibility === next.chat.visibility &&
+  prev.chat.lastMessageTime === next.chat.lastMessageTime &&
+  prev.chat.lastMessageText === next.chat.lastMessageText,
+);
+ChatListItem.displayName = 'ChatListItem';
 
 const ChatList: React.FC<ChatListProps> = ({
   chatRooms,
