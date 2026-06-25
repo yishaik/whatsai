@@ -277,12 +277,32 @@ Set "repeat" to one of "none" (one-off), "hourly", "daily", "weekly", or "monthl
       ? `\n\nBackground — summary of earlier parts of this conversation (before the messages shown below):\n${summaryText}`
       : '';
 
+    // Long-term memory (napkin-style). The client recalls durable facts about the
+    // user via the Convex `personaMemory.recall` query (progressive disclosure,
+    // token-budgeted) and passes the assembled block here as `memory`. We inject
+    // it as background context, exactly like the rolling summary above.
+    const memoryText = typeof body.memory === 'string' ? body.memory.trim() : '';
+    const memoryBlock = memoryText ? `\n\n${memoryText}` : '';
+
+    // When a persona has long-term memory enabled, teach it to emit durable facts
+    // using the same in-band token mechanism as reminders. The client parses
+    // `[[MEMORY]]` tokens, strips them from the displayed reply, and persists them
+    // via `personaMemory.remember`. Off by default — no change for plain personas.
+    const memoryEnabled = body.memoryEnabled === true;
+    const memoryInstruction = memoryEnabled
+      ? `
+
+You have a long-term memory that persists across conversations with this user. If — and ONLY if — the user reveals a durable fact worth remembering for future chats (their name, stable preferences, important people or pets, ongoing projects, lasting facts about their life), append at the very end of your reply, each on its OWN new line, a token of EXACTLY this form (one per fact, nothing after it):
+[[MEMORY]]{"fact":"<concise third-person fact about the user>","topic":"<short lowercase topic, e.g. user, preferences, work>"}
+Record only stable, durable facts — never ephemeral chit-chat, questions, or anything irrelevant tomorrow. Do not re-save a fact already shown in the memory block above. Never mention this token, its format, or that you are saving anything.`
+      : '';
+
     const systemInstruction = `You are in a group chat. The chat topic is: "${chatTopic}".
 Your persona is "${personaWithoutAvatar.name}". Your personality is: "${personaWithoutAvatar.prompt}".
 The other participants are: User${otherPersonas ? `, ${otherPersonas}` : ''}.
 You must respond as "${personaWithoutAvatar.name}". Your response must be in character.
 Do not prefix your response with your name (e.g., don't write "${personaWithoutAvatar.name}:"). Just provide the message content.
-This is a fast, casual group chat — write like a real person texting, not an essay. Keep replies short: usually 1–3 short sentences. Only go longer when the user explicitly asks for detail, a list, or a full explanation. When you do need to say more, break it into short paragraphs separated by a blank line (and use a brief bulleted list for steps/options) so it stays easy to read on a phone. Skip filler preambles and sign-offs — get straight to the point.${summaryBlock}${reminderInstruction}`;
+This is a fast, casual group chat — write like a real person texting, not an essay. Keep replies short: usually 1–3 short sentences. Only go longer when the user explicitly asks for detail, a list, or a full explanation. When you do need to say more, break it into short paragraphs separated by a blank line (and use a brief bulleted list for steps/options) so it stays easy to read on a phone. Skip filler preambles and sign-offs — get straight to the point.${summaryBlock}${memoryBlock}${reminderInstruction}${memoryInstruction}`;
 
     const imageNote = images.length
       ? 'The user attached the image(s) below with their latest message. Take them into account.\n\n'

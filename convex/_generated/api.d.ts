@@ -13,6 +13,7 @@ import type * as chat from "../chat.js";
 import type * as http from "../http.js";
 import type * as links from "../links.js";
 import type * as memory from "../memory.js";
+import type * as personaMemory from "../personaMemory.js";
 import type * as push from "../push.js";
 import type * as pushSubscriptions from "../pushSubscriptions.js";
 import type * as reminders from "../reminders.js";
@@ -31,6 +32,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   links: typeof links;
   memory: typeof memory;
+  personaMemory: typeof personaMemory;
   push: typeof push;
   pushSubscriptions: typeof pushSubscriptions;
   reminders: typeof reminders;

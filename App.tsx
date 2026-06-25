@@ -40,6 +40,8 @@ const App: React.FC = () => {
     reminders,
     scheduleReminder,
     cancelReminder,
+    recallPersonaMemory,
+    rememberPersonaMemory,
     usage,
     recordUsage,
   } = useConvexData();
@@ -227,6 +229,8 @@ const App: React.FC = () => {
           onUploadFile={uploadFile}
           onGenerateImage={onGenerateImage}
           onScheduleReminder={scheduleReminder}
+          onRecallMemory={recallPersonaMemory}
+          onRememberMemory={rememberPersonaMemory}
           onRecordUsage={recordUsage}
           onDeleteMessage={deleteMessage}
           onClaimResponse={claimResponseSlot}

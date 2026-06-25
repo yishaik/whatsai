@@ -1,4 +1,6 @@
 import type { Persona, Message, Source, ReminderInput, UsageInfo } from '../types';
+import { extractMemoryFacts, stripMemoryTokens } from '../memory/distill';
+import type { MemoryFact } from '../memory/types';
 
 type PersonaResponsePayload = {
   text: string;
@@ -6,6 +8,9 @@ type PersonaResponsePayload = {
   // Reminders the persona scheduled in this reply (parsed from a [[REMINDER]]
   // token in the model output). Empty unless the user asked for a reminder.
   reminders: ReminderInput[];
+  // Durable facts the persona chose to remember (parsed from [[MEMORY]] tokens).
+  // Empty unless the persona has long-term memory enabled and learned something.
+  facts: MemoryFact[];
   // Token usage for this reply, when the endpoint reports it.
   usage?: UsageInfo;
 };
@@ -49,16 +54,40 @@ const stripReminderTokens = (raw: string): { text: string; reminders: ReminderIn
   return { text, reminders };
 };
 
-// Hide a complete-or-partial [[REMINDER]] marker from text as it streams in, so
-// the token never flashes mid-stream.
-const stripForDisplay = (s: string): string => {
-  const idx = s.indexOf('[[REMINDER]]');
-  if (idx !== -1) return s.slice(0, idx).trimEnd();
-  const marker = '[[REMINDER]]';
-  for (let n = marker.length - 1; n > 0; n--) {
-    if (s.endsWith(marker.slice(0, n))) return s.slice(0, s.length - n).trimEnd();
+// In-band control tokens the model appends at the end of a reply. Both are
+// parsed out and never shown to the user.
+const DISPLAY_MARKERS = ['[[REMINDER]]', '[[MEMORY]]'] as const;
+
+// Hide a complete-or-partial control marker from text as it streams in, so the
+// token never flashes mid-stream. Tokens always sit at the end of a reply, so
+// cutting at the earliest marker hides every trailing token at once. Exported
+// for unit testing the streaming-display behavior.
+export const stripForDisplay = (s: string): string => {
+  let cut = s.length;
+  for (const marker of DISPLAY_MARKERS) {
+    const idx = s.indexOf(marker);
+    if (idx !== -1) cut = Math.min(cut, idx);
+  }
+  if (cut < s.length) return s.slice(0, cut).trimEnd();
+  // No full marker yet — also swallow a partial marker forming at the very end.
+  for (const marker of DISPLAY_MARKERS) {
+    for (let n = marker.length - 1; n > 0; n--) {
+      if (s.endsWith(marker.slice(0, n))) return s.slice(0, s.length - n).trimEnd();
+    }
   }
   return s;
+};
+
+// Finalize a completed reply: pull out both reminders and memory facts, then
+// return the clean display text with every token removed. Centralizes what both
+// the streaming and non-streaming paths return. Exported for unit testing.
+export const finalizeReply = (
+  raw: string,
+): { text: string; reminders: ReminderInput[]; facts: MemoryFact[] } => {
+  const facts = extractMemoryFacts(raw);
+  const { text: noReminders, reminders } = stripReminderTokens(raw);
+  const text = stripMemoryTokens(noReminders);
+  return { text, reminders, facts };
 };
 
 type AvatarPayload = {
@@ -156,6 +185,10 @@ export const generatePersonaResponse = async (
   images: { url: string; mimeType: string }[] = [],
   temperature?: number,
   summary?: string,
+  // Long-term memory block recalled for this turn, and whether this persona has
+  // memory enabled (which turns on the [[MEMORY]] emit instruction server-side).
+  memory?: string,
+  memoryEnabled?: boolean,
   signal?: AbortSignal
 ): Promise<PersonaResponsePayload> => {
   // Strip avatar fields to reduce payload size (avoids 413 errors)
@@ -174,10 +207,12 @@ export const generatePersonaResponse = async (
     images,
     temperature,
     summary,
+    memory,
+    memoryEnabled,
     timezone: userTimezone(),
   }, signal);
-  const { text, reminders } = stripReminderTokens(payload.text ?? '');
-  return { text, sources: payload.sources ?? [], reminders, usage: payload.usage };
+  const { text, reminders, facts } = finalizeReply(payload.text ?? '');
+  return { text, sources: payload.sources ?? [], reminders, facts, usage: payload.usage };
 };
 
 // Streaming variant: posts with `stream: true`, reads Server-Sent Events, and
@@ -195,6 +230,8 @@ export const streamPersonaResponse = async (
   onDelta: (fullText: string) => void,
   temperature?: number,
   summary?: string,
+  memory?: string,
+  memoryEnabled?: boolean,
   signal?: AbortSignal,
 ): Promise<PersonaResponsePayload> => {
   const strippedPersonasMap: { [id: string]: Omit<Persona, 'avatar'> } = {};
@@ -215,6 +252,8 @@ export const streamPersonaResponse = async (
       images,
       temperature,
       summary,
+      memory,
+      memoryEnabled,
       timezone: userTimezone(),
       stream: true,
     }),
@@ -262,8 +301,8 @@ export const streamPersonaResponse = async (
     }
   }
 
-  const { text, reminders } = stripReminderTokens(fullText.trim());
-  return { text, sources, reminders, usage };
+  const { text, reminders, facts } = finalizeReply(fullText.trim());
+  return { text, sources, reminders, facts, usage };
 };
 
 export const generateAvatar = async (name: string, prompt: string): Promise<string> => {

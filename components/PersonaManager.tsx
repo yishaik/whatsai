@@ -25,6 +25,7 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
   const [prompt, setPrompt] = useState('');
   const [skills, setSkills] = useState<Set<string>>(new Set());
   const [model, setModel] = useState(''); // '' = use the default model
+  const [memoryEnabled, setMemoryEnabled] = useState(false);
   const toggleSkill = (id: string) =>
     setSkills((prev) => {
       const next = new Set(prev);
@@ -44,6 +45,7 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
     setPrompt(t.prompt);
     setSkills(new Set(t.skills));
     setModel('');
+    setMemoryEnabled(false);
   };
 
   const handleExportPersonas = () => {
@@ -108,6 +110,7 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
     // Back-compat: a legacy canSearch persona maps to the web_search skill.
     setSkills(new Set(persona.skills ?? (persona.canSearch ? ['web_search'] : [])));
     setModel(persona.model || '');
+    setMemoryEnabled(persona.memoryEnabled === true);
   };
 
   const handleCancelEdit = () => {
@@ -116,6 +119,7 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
     setPrompt('');
     setSkills(new Set());
     setModel('');
+    setMemoryEnabled(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -128,6 +132,7 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
         canSearch: skills.has('web_search'), // mirror for back-compat
         skills: skillList,
         model: model || undefined,
+        memoryEnabled,
       };
       if (editingPersonaId) {
         updatePersona(editingPersonaId, personaData);
@@ -144,6 +149,7 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
           setPrompt('');
           setSkills(new Set());
           setModel('');
+          setMemoryEnabled(false);
         } catch (criticalError) {
           console.error("A critical error occurred while adding a persona:", criticalError);
           alert("An unexpected critical error occurred. Please check the console.");
@@ -279,6 +285,29 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
                   <p className="text-xs text-yellow-500/80 mt-1">Note: web search only works on Gemini models; it'll be ignored on GPT.</p>
                 )}
               </div>
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-2">Long-term memory</label>
+                <label
+                  className={`flex items-start gap-2 p-2 rounded-md cursor-pointer border ${
+                    memoryEnabled ? 'border-accent-green bg-accent-green/10' : 'border-item-hover-bg bg-item-active-bg'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={memoryEnabled}
+                    onChange={(e) => setMemoryEnabled(e.target.checked)}
+                    disabled={isCreating}
+                    className="mt-0.5 h-4 w-4 rounded border-item-hover-bg bg-item-active-bg text-accent-green focus:ring-accent-green"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm text-text-primary">Remember facts about me across chats</span>
+                    <span className="block text-xs text-text-secondary">
+                      This persona recalls durable facts you've shared (your name, preferences, people, projects)
+                      in new conversations, and quietly saves new ones. Off by default.
+                    </span>
+                  </span>
+                </label>
+              </div>
               <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
                  {editingPersonaId && (
                   <button 
@@ -358,6 +387,11 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
                                       {p.model && (
                                         <span className="text-[10px] uppercase tracking-wide bg-panel-bg text-text-secondary px-1.5 py-0.5 rounded flex-shrink-0">
                                           {findModelLabel(models, p.model)}
+                                        </span>
+                                      )}
+                                      {p.memoryEnabled && (
+                                        <span className="text-[10px] uppercase tracking-wide bg-accent-green/15 text-accent-green px-1.5 py-0.5 rounded flex-shrink-0" title="Long-term memory enabled">
+                                          memory
                                         </span>
                                       )}
                                     </div>

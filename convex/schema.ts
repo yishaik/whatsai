@@ -21,6 +21,10 @@ export default defineSchema({
     // Enabled capability ids (e.g. "web_search", "fetch_url", "calculate").
     // `canSearch` is kept for back-compat and mirrors the "web_search" skill.
     skills: v.optional(v.array(v.string())),
+    // Long-term memory opt-in (napkin-style). Optional + absent = OFF, so every
+    // existing persona keeps today's behavior with no migration. See
+    // convex/personaMemory.ts and memory/.
+    memoryEnabled: v.optional(v.boolean()),
     createdAt: v.number(),
   }),
 
@@ -140,6 +144,31 @@ export default defineSchema({
   })
     .index("by_user", ["userId"])
     .index("by_chat", ["chatId"]),
+
+  // Napkin-style long-term memory for personas. One logical vault per user:
+  // durable facts a persona learns ("the user's dog is Rex") live as markdown
+  // notes here and are recalled via progressive disclosure (see
+  // convex/personaMemory.ts + memory/). `scope: "user"` notes are shared across
+  // all of a user's personas; `scope: "persona"` notes are namespaced to one
+  // persona via `personaId`. `title` is the topic/note name; `content` is its
+  // markdown body, appended to as new facts arrive.
+  personaMemories: defineTable({
+    ownerId: v.id("users"),
+    scope: v.union(v.literal("user"), v.literal("persona")),
+    personaId: v.optional(v.string()),
+    title: v.string(),
+    content: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_owner", ["ownerId"])
+    .index("by_owner_scope", ["ownerId", "scope"])
+    // Native full-text search over note bodies, scoped per owner. Recall queries
+    // the index directly instead of loading the whole vault into an in-memory
+    // MiniSearch index each call (see convex/personaMemoryEngine.ts).
+    .searchIndex("search_content", {
+      searchField: "content",
+      filterFields: ["ownerId", "scope", "personaId"],
+    }),
 
   // Per-user, per-model token usage (running totals), for the usage dashboard.
   // One row per (userId, model); incremented after each reply.

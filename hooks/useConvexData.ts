@@ -1,8 +1,9 @@
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useConvex } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { Id } from "../convex/_generated/dataModel";
 import { useState, useMemo } from "react";
 import { Attachment, ReminderInput, Reminder, UsageInfo, UsageRow } from "../types";
+import type { MemoryFact } from "../memory/types";
 import { DEFAULT_MODEL_ID } from "../services/models";
 
 export type { Attachment, Reminder, UsageRow };
@@ -16,6 +17,7 @@ export interface Persona {
   canSearch?: boolean;
   model?: string;
   skills?: string[];
+  memoryEnabled?: boolean;
 }
 
 export interface Message {
@@ -48,6 +50,10 @@ export interface ChatRoom {
 export function useConvexData() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
 
+  // Imperative Convex client, for one-shot calls inside an async turn (memory
+  // recall/remember) that don't fit the reactive useQuery/useMutation model.
+  const convex = useConvex();
+
   // Convex queries
   const convexPersonas = useQuery(api.chat.getAllPersonas) || [];
   const convexChatRooms = useQuery(api.chat.getAllChatRooms) || [];
@@ -64,6 +70,7 @@ export function useConvexData() {
   const createPersonaMutation = useMutation(api.chat.createPersona);
   const updatePersonaMutation = useMutation(api.chat.updatePersona);
   const deletePersonaMutation = useMutation(api.chat.deletePersona);
+  const rememberMemoryMutation = useMutation(api.personaMemory.remember);
 
   const createChatRoomMutation = useMutation(api.chat.createChatRoom);
   const updateChatRoomMutation = useMutation(api.chat.updateChatRoom);
@@ -102,6 +109,7 @@ export function useConvexData() {
       canSearch: p.canSearch,
       model: p.model,
       skills: p.skills,
+      memoryEnabled: p.memoryEnabled,
     }));
   }, [convexPersonas]);
 
@@ -147,6 +155,7 @@ export function useConvexData() {
       canSearch: personaData.canSearch || false,
       model: personaData.model,
       skills: personaData.skills,
+      memoryEnabled: personaData.memoryEnabled,
     });
     return id;
   };
@@ -165,6 +174,7 @@ export function useConvexData() {
       canSearch: updates.canSearch,
       model: updates.model,
       skills: updates.skills,
+      memoryEnabled: updates.memoryEnabled,
     });
   };
 
@@ -298,6 +308,31 @@ export function useConvexData() {
     await cancelReminderMutation({ id: id as Id<"reminders"> });
   };
 
+  // ── Long-term persona memory (napkin-style) ───────────────────────────────
+  // Recall durable facts about the user before a memory-enabled persona replies.
+  // Returns a budgeted memory block to inject into the system prompt (empty for
+  // signed-out users or an empty vault). A one-shot query, so it uses the
+  // imperative client rather than the reactive useQuery hook.
+  const recallPersonaMemory = async (
+    personaId: string,
+    query: string,
+  ): Promise<{ block: string; estTokens: number }> => {
+    const res = await convex.query(api.personaMemory.recall, { query, personaId });
+    return { block: res?.block ?? "", estTokens: res?.estTokens ?? 0 };
+  };
+
+  // Persist the durable facts a persona distilled from its reply (parsed
+  // [[MEMORY]] tokens). Written to the user's shared vault (scope "user") so the
+  // memory follows the user across all their personas.
+  const rememberPersonaMemory = async (
+    personaId: string,
+    facts: MemoryFact[],
+  ): Promise<number> => {
+    if (facts.length === 0) return 0;
+    const res = await rememberMemoryMutation({ facts, personaId, scope: "user" });
+    return res?.written ?? 0;
+  };
+
   // Record token usage for a reply (fire-and-forget; never blocks the chat).
   const recordUsage = (info: UsageInfo): void => {
     void recordUsageMutation({
@@ -359,6 +394,10 @@ export function useConvexData() {
     reminders,
     scheduleReminder,
     cancelReminder,
+
+    // Long-term persona memory
+    recallPersonaMemory,
+    rememberPersonaMemory,
 
     // Usage
     usage,

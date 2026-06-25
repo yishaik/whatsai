@@ -6,6 +6,10 @@ export interface Persona {
   canSearch?: boolean;
   model?: string; // optional per-persona model override (registry id)
   skills?: string[]; // enabled capability ids (see services/skills.ts)
+  // Long-term (napkin-style) memory. When true, this persona recalls durable
+  // facts about the user before replying and distills new ones afterwards via
+  // the [[MEMORY]] token. Off by default so existing personas are unchanged.
+  memoryEnabled?: boolean;
 }
 
 export interface Source {

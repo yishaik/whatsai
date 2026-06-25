@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChatRoom, Persona, Message, Attachment, ReminderInput, UsageInfo } from '../types';
+import type { MemoryFact } from '../memory/types';
 import { USER_ID } from '../constants';
 import MessageBubble from './MessageBubble';
 import { SendIcon, ChatBubbleLeftRightIcon, PencilIcon, TrashIcon, PaperClipIcon, XMarkIcon, PhoneIcon, PhotoIcon, ClockIcon, MicrophoneIcon } from './icons';
@@ -37,6 +38,11 @@ interface ChatViewProps {
   onUploadFile: (file: File) => Promise<Attachment>;
   onGenerateImage: (prompt: string) => Promise<Attachment>;
   onScheduleReminder: (chatId: string, personaId: string, reminder: ReminderInput) => Promise<void>;
+  // Long-term memory: recall a budgeted block before a memory-enabled persona
+  // replies, and persist the facts it distilled afterwards. Both no-op for
+  // personas without memory enabled.
+  onRecallMemory: (personaId: string, query: string) => Promise<{ block: string }>;
+  onRememberMemory: (personaId: string, facts: MemoryFact[]) => Promise<number>;
   onRecordUsage: (usage: UsageInfo) => void;
   onDeleteMessage: (messageId: string) => Promise<unknown> | void;
   onClaimResponse: (chatId: string, triggerMessageId: string, personaId: string) => Promise<boolean>;
@@ -94,7 +100,7 @@ const StreamingBubble: React.FC<{ persona: Persona; text: string }> = ({ persona
     </div>
 );
 
-const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, onSendMessage, onUploadFile, onGenerateImage, onScheduleReminder, onRecordUsage, onDeleteMessage, onClaimResponse, onOpenReminders, onEditChat, onDeleteChat }) => {
+const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, onSendMessage, onUploadFile, onGenerateImage, onScheduleReminder, onRecallMemory, onRememberMemory, onRecordUsage, onDeleteMessage, onClaimResponse, onOpenReminders, onEditChat, onDeleteChat }) => {
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
@@ -388,6 +394,22 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
 
         setTypingPersonas(prev => new Set(prev).add(persona.id));
         try {
+            // Long-term memory recall (napkin-style). For a memory-enabled persona,
+            // pull a budgeted block of durable facts about the user — keyed off
+            // what they just said — and inject it into the prompt. No-op (and no
+            // round-trip) for personas without memory enabled.
+            let memoryBlock = '';
+            const memoryEnabled = persona.memoryEnabled === true;
+            if (memoryEnabled) {
+                try {
+                    const recalled = await onRecallMemory(persona.id, lastMessage.text);
+                    memoryBlock = recalled?.block ?? '';
+                } catch (memErr) {
+                    console.error('Memory recall failed for', persona.name, memErr);
+                }
+                if (signal.aborted) return;
+            }
+
             let response: Awaited<ReturnType<typeof streamPersonaResponse>>;
             try {
                 response = await streamPersonaResponse(
@@ -399,13 +421,15 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                     },
                     chatTemperature,
                     chatSummary,
+                    memoryBlock,
+                    memoryEnabled,
                     signal,
                 );
             } catch (streamError) {
                 if (signal.aborted) return;
                 // Streaming failed — fall back to the non-streaming endpoint.
                 console.warn("Streaming failed, falling back to non-streaming:", streamError);
-                response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, model, images, chatTemperature, chatSummary, signal);
+                response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, model, images, chatTemperature, chatSummary, memoryBlock, memoryEnabled, signal);
             }
             if (signal.aborted) return;
             // Screen the persona's reply (fails open). Flagged output is replaced
@@ -433,6 +457,14 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                 for (const reminder of response.reminders ?? []) {
                     onScheduleReminder(chatId, persona.id, reminder).catch((err) =>
                         console.error('Failed to schedule reminder:', err),
+                    );
+                }
+                // Persist any durable facts this persona distilled this turn (the
+                // [[MEMORY]] tokens, already stripped from the displayed reply).
+                // Fire-and-forget so it never blocks the conversation.
+                if (memoryEnabled && (response.facts?.length ?? 0) > 0) {
+                    onRememberMemory(persona.id, response.facts).catch((err) =>
+                        console.error('Failed to persist memory:', err),
                     );
                 }
             }
@@ -471,7 +503,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
             await runTurn(persona, `riff:${lastMessage.id}:${round}`, []);
         }
     }
-  }, [chatRoom, personasMap, onSendMessage, onScheduleReminder, onRecordUsage, onClaimResponse, defaultModel]);
+  }, [chatRoom, personasMap, onSendMessage, onScheduleReminder, onRecallMemory, onRememberMemory, onRecordUsage, onClaimResponse, defaultModel]);
   
   useEffect(() => {
     if (chatRoom && chatRoom.messages.length > 0) {
@@ -582,16 +614,31 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     const { signal } = controller;
     setTypingPersonas((prev) => new Set(prev).add(persona.id));
     try {
+      // Mirror the live turn: recall long-term memory for a memory-enabled
+      // persona, keyed off the most recent user message in the kept history.
+      let memoryBlock = '';
+      const memoryEnabled = persona.memoryEnabled === true;
+      if (memoryEnabled) {
+        const lastUserMsg = [...history].reverse().find((m) => m.authorId === USER_ID);
+        try {
+          const recalled = await onRecallMemory(persona.id, lastUserMsg?.text ?? chatRoom.topic);
+          memoryBlock = recalled?.block ?? '';
+        } catch (memErr) {
+          console.error('Memory recall failed for', persona.name, memErr);
+        }
+        if (signal.aborted) return;
+      }
+
       let response: Awaited<ReturnType<typeof streamPersonaResponse>>;
       try {
         response = await streamPersonaResponse(
           persona, chatRoom.topic, history, personasInChat, personasMap, model, [],
           (full) => { if (!signal.aborted) setStreamingText((prev) => ({ ...prev, [persona.id]: full })); },
-          chatRoom.temperature, chatRoom.summary, signal,
+          chatRoom.temperature, chatRoom.summary, memoryBlock, memoryEnabled, signal,
         );
       } catch (streamError) {
         if (signal.aborted) return;
-        response = await generatePersonaResponse(persona, chatRoom.topic, history, personasInChat, personasMap, model, [], chatRoom.temperature, chatRoom.summary, signal);
+        response = await generatePersonaResponse(persona, chatRoom.topic, history, personasInChat, personasMap, model, [], chatRoom.temperature, chatRoom.summary, memoryBlock, memoryEnabled, signal);
       }
       if (signal.aborted) return;
       const outMod = await moderateText(response.text);
@@ -599,6 +646,11 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       const replyText = outMod.flagged ? '⚠️ This reply was withheld (content policy).' : response.text;
       onSendMessage(chatId, { authorId: persona.id, text: replyText, sources: outMod.flagged ? [] : response.sources });
       if (response.usage) onRecordUsage(response.usage);
+      if (memoryEnabled && !outMod.flagged && (response.facts?.length ?? 0) > 0) {
+        onRememberMemory(persona.id, response.facts).catch((err) =>
+          console.error('Failed to persist memory:', err),
+        );
+      }
     } catch (error) {
       if (signal.aborted) return;
       console.error('Regenerate failed for', persona.name, error);
@@ -607,7 +659,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
       setStreamingText((prev) => { const next = { ...prev }; delete next[persona.id]; return next; });
       setTypingPersonas((prev) => { const s = new Set(prev); s.delete(persona.id); return s; });
     }
-  }, [chatRoom, isGenerating, personasMap, defaultModel, onDeleteMessage, onSendMessage, onRecordUsage]);
+  }, [chatRoom, isGenerating, personasMap, defaultModel, onDeleteMessage, onSendMessage, onRecallMemory, onRememberMemory, onRecordUsage]);
 
   // WhatsApp-style merged trailing button: show Send once there's something to
   // send, otherwise show the mic (record). While recording/transcribing we keep
