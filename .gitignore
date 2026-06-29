@@ -37,3 +37,9 @@ dist-ssr
 client_secret_*.json
 **/client_secret_*.json
 *.serviceaccount.json
+
+# Local scratch / temp artifacts (Claude sessions, test output) — never tracked
+tmpclaude-*
+nul
+test-results/
+.claude/settings.local.json
