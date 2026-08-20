@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
-import { CF_DEFAULT_CHAT, cfOpenAI, cfReady } from '../lib/cloudflareAi';
+import { CF_DEFAULT_CHAT, cfOpenAI, cfReady } from '../lib/cloudflareAi.js';
 
 // Per-IP rate limit, backed by Convex (shared across lambda instances), so this
 // paid endpoint can't be hammered directly. Inlined (no cross-dir import — that

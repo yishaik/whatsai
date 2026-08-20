@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
-import { CF_IMAGE_MODEL, cfImageDataUri, cfReady, cfRun } from '../lib/cloudflareAi';
+import { CF_IMAGE_MODEL, cfImageDataUri, cfReady, cfRun } from '../lib/cloudflareAi.js';
 
 // Per-IP rate limit backed by Convex (see api/persona-response.ts). Inlined to
 // avoid cross-dir imports in the ESM serverless runtime; fails open.

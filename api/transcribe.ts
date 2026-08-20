@@ -1,7 +1,7 @@
 import OpenAI, { toFile } from 'openai';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
-import { CF_WHISPER_MODEL, cfReady, cfRun } from '../lib/cloudflareAi';
+import { CF_WHISPER_MODEL, cfReady, cfRun } from '../lib/cloudflareAi.js';
 
 const clientIp = (req: any): string =>
   String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
