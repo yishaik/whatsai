@@ -20,8 +20,10 @@ export const PROVIDER_ORDER: ModelProvider[] = ['cloudflare', 'gemini', 'openai'
 
 // Used before /api/models responds, or if it fails / a key is missing.
 export const FALLBACK_MODELS: ModelOption[] = [
+  { id: '@cf/deepseek-ai/deepseek-v4-pro-0813', label: 'DeepSeek V4 Pro', provider: 'cloudflare' },
+  { id: '@cf/deepseek-ai/deepseek-v4-flash-0731', label: 'DeepSeek V4 Flash', provider: 'cloudflare' },
+  { id: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', label: 'DeepSeek R1 Distill 32B', provider: 'cloudflare' },
   { id: '@cf/meta/llama-3.1-8b-instruct-fast', label: 'Llama 3.1 8B Fast', provider: 'cloudflare' },
-  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'Llama 3.3 70B Fast', provider: 'cloudflare' },
   { id: '@cf/openai/gpt-oss-20b', label: 'GPT-OSS 20B', provider: 'cloudflare' },
 ];
 
