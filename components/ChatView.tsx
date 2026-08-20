@@ -10,6 +10,7 @@ import SourceViewerModal from './SourceViewerModal';
 // Lazy so @google/genai (the Live SDK) only loads when a call actually starts.
 const VoiceCallOverlay = lazy(() => import('./VoiceCallOverlay'));
 import { generatePersonaResponse, streamPersonaResponse } from '../services/geminiService';
+import { explainAiError, isUnrecoverableAiError } from '../services/aiErrors';
 import { speak, stopSpeaking, ttsSupported } from '../services/speech';
 import { moderateText, describeCategories } from '../services/moderation';
 import { fetchSuggestions } from '../services/suggest';
@@ -105,7 +106,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
   const [speakingId, setSpeakingId] = useState<string | null>(null);
-  const [failedPersonas, setFailedPersonas] = useState<string[]>([]);
+  const [failedPersonas, setFailedPersonas] = useState<{ name: string; detail: string }[]>([]);
   const [callPersona, setCallPersona] = useState<Persona | null>(null);
   const [showCallPicker, setShowCallPicker] = useState(false);
   const canSpeak = ttsSupported();
@@ -427,6 +428,8 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                 );
             } catch (streamError) {
                 if (signal.aborted) return;
+                // Auth / missing-key failures will fail the same way on retry.
+                if (isUnrecoverableAiError(streamError)) throw streamError;
                 // Streaming failed — fall back to the non-streaming endpoint.
                 console.warn("Streaming failed, falling back to non-streaming:", streamError);
                 response = await generatePersonaResponse(persona, chatTopic, runningHistory, personasInChat, personasMap, model, images, chatTemperature, chatSummary, memoryBlock, memoryEnabled, signal);
@@ -471,7 +474,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
         } catch (error) {
             if (signal.aborted) return;
             console.error("Failed to get AI response for", persona.name, error);
-            setFailedPersonas(prev => [...prev, persona.name]);
+            setFailedPersonas(prev => [...prev, { name: persona.name, detail: explainAiError(error) }]);
         } finally {
             setStreamingText(prev => {
                 const next = { ...prev };
@@ -638,6 +641,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
         );
       } catch (streamError) {
         if (signal.aborted) return;
+        if (isUnrecoverableAiError(streamError)) throw streamError;
         response = await generatePersonaResponse(persona, chatRoom.topic, history, personasInChat, personasMap, model, [], chatRoom.temperature, chatRoom.summary, memoryBlock, memoryEnabled, signal);
       }
       if (signal.aborted) return;
@@ -654,7 +658,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
     } catch (error) {
       if (signal.aborted) return;
       console.error('Regenerate failed for', persona.name, error);
-      setFailedPersonas((prev) => [...prev, persona.name]);
+      setFailedPersonas((prev) => [...prev, { name: persona.name, detail: explainAiError(error) }]);
     } finally {
       setStreamingText((prev) => { const next = { ...prev }; delete next[persona.id]; return next; });
       setTypingPersonas((prev) => { const s = new Set(prev); s.delete(persona.id); return s; });
@@ -830,11 +834,18 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
                 ? <StreamingBubble key={id} persona={persona} text={partial} />
                 : <TypingIndicator key={id} persona={persona} />;
         })}
-        {failedPersonas.map((name, i) => (
-            <div key={`fail-${i}`} className="text-center text-xs text-red-400 bg-red-500/10 rounded-lg py-1.5 px-3 mx-auto max-w-md">
-                ⚠️ {name} couldn't respond. Please try again.
-            </div>
-        ))}
+        {failedPersonas.length > 0 && (() => {
+            const details = Array.from(new Set(failedPersonas.map((f) => f.detail)));
+            const names = failedPersonas.map((f) => f.name).join(', ');
+            const text = details.length === 1
+              ? `${names} couldn't respond. ${details[0]}`
+              : failedPersonas.map((f) => `${f.name}: ${f.detail}`).join(' · ');
+            return (
+              <div className="text-center text-xs text-red-400 bg-red-500/10 rounded-lg py-1.5 px-3 mx-auto max-w-md">
+                ⚠️ {text}
+              </div>
+            );
+        })()}
         </div>
         <div ref={messagesEndRef} />
       </main>

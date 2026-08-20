@@ -147,6 +147,32 @@ const getApiKey = (): string => {
   return apiKey;
 };
 
+// Keep in sync with services/aiErrors.ts (this function cannot import it —
+// Vercel ESM functions fail on cross-directory relative imports).
+const publicAiError = (error: unknown): string => {
+  const raw = error instanceof Error ? error.message : String(error ?? 'Unknown error');
+  const s = raw.toLowerCase();
+  if (/gemini_api_key environment variable is not set/.test(s)) {
+    return 'GEMINI_API_KEY is not set on the server. Add it in Vercel project settings.';
+  }
+  if (/api[_ ]key not valid|api_key_invalid|pass a valid api key/.test(s)) {
+    return 'Gemini API key is invalid or revoked. Update GEMINI_API_KEY in Vercel project settings.';
+  }
+  if (/openai_api_key/.test(s) && /not configured|not set/.test(s)) {
+    return 'OPENAI_API_KEY is not set on the server. Add it in Vercel to use GPT.';
+  }
+  if (/incorrect api key provided|invalid_api_key/.test(s)) {
+    return 'OpenAI API key is invalid or revoked. Update OPENAI_API_KEY in Vercel project settings.';
+  }
+  if (/too many requests|429|resource.?exhausted|rate.?limit/.test(s)) {
+    return 'Too many requests. Wait a few seconds and try again.';
+  }
+  if (raw.length > 220 || /"error"\s*:/.test(raw)) {
+    return 'The model request failed. Check Vercel function logs for the provider error.';
+  }
+  return raw;
+};
+
 const formatChatHistory = (
   history: Message[],
   personasMap: Record<string, Persona>
@@ -540,7 +566,7 @@ This is a fast, casual group chat — write like a real person texting, not an e
         });
       } catch (streamError) {
         console.error('Error streaming persona response:', streamError);
-        send({ error: streamError instanceof Error ? streamError.message : 'stream failed' });
+        send({ error: publicAiError(streamError) });
       } finally {
         res.end();
       }
@@ -559,8 +585,8 @@ This is a fast, casual group chat — write like a real person texting, not an e
     });
   } catch (error) {
     console.error('Error generating persona response:', error);
-    return res.status(500).json({
-      error: error instanceof Error ? error.message : 'Failed to generate persona response.',
-    });
+    const message = publicAiError(error);
+    const auth = /API key/i.test(message);
+    return res.status(auth ? 401 : 500).json({ error: message });
   }
 }

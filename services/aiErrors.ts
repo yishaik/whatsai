@@ -1,0 +1,41 @@
+// Turn provider/SDK blobs into a short message a human can act on.
+// Used on the client (and mirrored in api/persona-response.ts — Vercel
+// functions cannot import across directories).
+
+export const explainAiError = (err: unknown): string => {
+  const raw = err instanceof Error ? err.message : String(err ?? 'Unknown error');
+  const s = raw.toLowerCase();
+
+  if (/gemini_api_key environment variable is not set|api_key is not set/.test(s)) {
+    return 'GEMINI_API_KEY is not set on the server. Add it in Vercel project settings.';
+  }
+  if (/api[_ ]key not valid|api_key_invalid|pass a valid api key/.test(s)) {
+    return 'Gemini API key is invalid or revoked. Update GEMINI_API_KEY in Vercel project settings.';
+  }
+  if (/openai_api_key is not configured|openai_api_key environment/.test(s)) {
+    return 'OPENAI_API_KEY is not set on the server. Add it in Vercel to use GPT, TTS, or transcription.';
+  }
+  if (/incorrect api key provided|invalid_api_key|invalid_api_key/.test(s)) {
+    return 'OpenAI API key is invalid or revoked. Update OPENAI_API_KEY in Vercel project settings.';
+  }
+  if (/too many requests|429|resource.?exhausted|rate.?limit/.test(s)) {
+    return 'Too many requests. Wait a few seconds and try again.';
+  }
+  if (/timed out/.test(s)) {
+    return 'The model request timed out. Try again.';
+  }
+  if (/not found|404/.test(s) && /model/.test(s)) {
+    return 'That model is not available with the configured API key. Pick another in Settings.';
+  }
+  // Provider errors often dump a JSON blob. Don't show that in the chat.
+  if (raw.length > 220 || /"error"\s*:/.test(raw)) {
+    return 'The model request failed. Check Vercel function logs for the provider error.';
+  }
+  return raw;
+};
+
+export const isUnrecoverableAiError = (err: unknown): boolean => {
+  const s = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return /api[_ ]key|invalid_api_key|not set on the server|not configured|gemini api key|openai api key/.test(s)
+    || /api[_ ]key not valid|pass a valid api key|incorrect api key/.test(s);
+};
