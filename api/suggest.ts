@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
+import { CF_DEFAULT_CHAT, cfOpenAI, cfReady } from '../lib/cloudflareAi';
 
 const clientIp = (req: any): string =>
   String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
@@ -29,7 +30,7 @@ export default async function handler(req: any, res: any) {
   if (!(await ipLimitOk(req, 'suggest'))) return res.status(429).json({ suggestions: [] });
 
   const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-  if (!apiKey) return res.status(200).json({ suggestions: [] });
+  if (!apiKey && !cfReady()) return res.status(200).json({ suggestions: [] });
 
   const chatTopic = String(req.body?.chatTopic || 'a chat');
   const personaNames: string[] = Array.isArray(req.body?.personaNames) ? req.body.personaNames.slice(0, 10) : [];
@@ -43,15 +44,26 @@ export default async function handler(req: any, res: any) {
     : `The User is starting a new group chat titled "${chatTopic}" with: ${participants}.\n\nSuggest 3 short, engaging opening messages the User could send, each under 12 words and distinct. Return ONLY a JSON array of 3 strings.`;
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: SUGGEST_MODEL,
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config: { temperature: 0.9, responseMimeType: 'application/json' },
-    });
+    let raw = '';
+    if (cfReady()) {
+      const completion = await cfOpenAI().chat.completions.create({
+        model: CF_DEFAULT_CHAT,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.9,
+      });
+      raw = completion.choices?.[0]?.message?.content ?? '[]';
+    } else {
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: SUGGEST_MODEL,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: { temperature: 0.9, responseMimeType: 'application/json' },
+      });
+      raw = response.text ?? '[]';
+    }
     let suggestions: string[] = [];
     try {
-      const parsed = JSON.parse(response.text ?? '[]');
+      const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) suggestions = parsed.filter((s) => typeof s === 'string').map((s) => s.trim()).filter(Boolean).slice(0, 3);
     } catch {
       suggestions = [];

@@ -3,7 +3,7 @@ import { XMarkIcon } from './icons';
 import { useModels } from '../hooks/useModels';
 import { UsageRow } from '../types';
 import { estimateCostUsd, formatUsd } from '../services/pricing';
-import { findModelLabel } from '../services/models';
+import { findModelLabel, groupedModels } from '../services/models';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -31,8 +31,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, defaultM
 
   if (!isOpen) return null;
 
-  const gemini = models.filter((m) => m.provider === 'gemini');
-  const openai = models.filter((m) => m.provider === 'openai');
+  const groups = groupedModels(models);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
@@ -55,16 +54,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, defaultM
               onChange={(e) => onSetDefaultModel(e.target.value)}
               className="w-full bg-item-active-bg border border-item-hover-bg text-text-primary rounded-md p-2 focus:ring-accent-green focus:border-accent-green"
             >
-              {gemini.length > 0 && (
-                <optgroup label="Gemini">
-                  {gemini.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              {groups.map((g) => (
+                <optgroup key={g.provider} label={g.label}>
+                  {g.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
                 </optgroup>
-              )}
-              {openai.length > 0 && (
-                <optgroup label="OpenAI">
-                  {openai.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                </optgroup>
-              )}
+              ))}
               {/* Ensure the saved value is selectable even if it's not in the live list. */}
               {!models.some((m) => m.id === defaultModel) && (
                 <option value={defaultModel}>{defaultModel}</option>

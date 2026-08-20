@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
+import { CF_TTS_MODEL, cfReady, cfRun } from '../lib/cloudflareAi';
 
 const clientIp = (req: any): string =>
   String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
@@ -35,7 +36,9 @@ export default async function handler(req: any, res: any) {
   if (!(await ipLimitOk(req, 'tts'))) return res.status(429).json({ error: 'Too many requests.' });
 
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'OPENAI_API_KEY is not configured on the server.' });
+  if (!apiKey && !cfReady()) {
+    return res.status(500).json({ error: 'Set CLOUDFLARE_API_TOKEN or OPENAI_API_KEY for TTS.' });
+  }
 
   const text = String(req.body?.text || '').slice(0, 4000);
   const seed = String(req.body?.seed || 'default');
@@ -44,6 +47,15 @@ export default async function handler(req: any, res: any) {
   const voice = VOICES[hashString(seed) % VOICES.length];
 
   try {
+    if (cfReady()) {
+      const result = await cfRun(CF_TTS_MODEL, { prompt: text, lang: 'en' });
+      const b64 = result?.audio || result;
+      if (typeof b64 !== 'string') throw new Error('Cloudflare TTS returned no audio.');
+      const buf = Buffer.from(b64, 'base64');
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).send(buf);
+    }
     const openai = new OpenAI({ apiKey });
     const speech = await openai.audio.speech.create({ model: 'tts-1', voice: voice as any, input: text });
     const buf = Buffer.from(await speech.arrayBuffer());

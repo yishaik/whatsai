@@ -261,7 +261,14 @@ export const streamPersonaResponse = async (
   });
 
   if (!resp.ok || !resp.body) {
-    throw new Error(`Stream request failed with status ${resp.status}`);
+    let detail = `Stream request failed with status ${resp.status}`;
+    try {
+      const payload = await resp.json();
+      if (payload?.error) detail = String(payload.error);
+    } catch {
+      /* keep status fallback */
+    }
+    throw new Error(detail);
   }
 
   const reader = resp.body.getReader();

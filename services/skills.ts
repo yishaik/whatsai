@@ -8,7 +8,7 @@ export interface SkillDef {
 }
 
 export const SKILLS: SkillDef[] = [
-  { id: 'web_search', label: 'Web search', description: 'Look up real-time info (Gemini only; ignored on GPT).' },
+  { id: 'web_search', label: 'Web search', description: 'Look up real-time info (Gemini only; ignored on Cloudflare and GPT).' },
   { id: 'fetch_url', label: 'Read URLs', description: 'Fetch and read the contents of a web page.' },
   { id: 'calculate', label: 'Calculator', description: 'Do exact arithmetic.' },
   { id: 'datetime', label: 'Date & time', description: 'Know the current date/time and timezone.' },

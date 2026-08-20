@@ -3,6 +3,7 @@ import { ChatRoom, Persona } from '../types';
 import { XMarkIcon, ArrowPathIcon } from './icons';
 import Avatar from './Avatar';
 import { useModels } from '../hooks/useModels';
+import { groupedModels } from '../services/models';
 import { exportChatMarkdown, downloadText, slugify } from '../services/exportChat';
 
 interface EditChatModalProps {
@@ -219,20 +220,13 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
                   className="w-full bg-item-active-bg border border-item-hover-bg text-text-primary rounded-md p-2 focus:ring-accent-green focus:border-accent-green"
                 >
                   <option value="">Default (my setting / per-persona)</option>
-                  {models.filter((m) => m.provider === 'gemini').length > 0 && (
-                    <optgroup label="Gemini">
-                      {models.filter((m) => m.provider === 'gemini').map((m) => (
+                  {groupedModels(models).map((g) => (
+                    <optgroup key={g.provider} label={g.label}>
+                      {g.models.map((m) => (
                         <option key={m.id} value={m.id}>{m.label}</option>
                       ))}
                     </optgroup>
-                  )}
-                  {models.filter((m) => m.provider === 'openai').length > 0 && (
-                    <optgroup label="OpenAI">
-                      {models.filter((m) => m.provider === 'openai').map((m) => (
-                        <option key={m.id} value={m.id}>{m.label}</option>
-                      ))}
-                    </optgroup>
-                  )}
+                  ))}
                   {model && !models.some((m) => m.id === model) && (
                     <option value={model}>{model}</option>
                   )}
