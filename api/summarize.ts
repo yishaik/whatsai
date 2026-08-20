@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
-import { CF_DEFAULT_CHAT, cfOpenAI, cfReady } from '../lib/cloudflareAi';
+import { CF_DEFAULT_CHAT, cfOpenAI, cfReady } from '../lib/cloudflareAi.js';
 
 const clientIp = (req: any): string =>
   String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||

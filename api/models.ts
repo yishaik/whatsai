@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
-import { CF_CHAT_MODELS, cfReady } from '../lib/cloudflareAi';
+import { CF_CHAT_MODELS, cfReady } from '../lib/cloudflareAi.js';
 
 // Returns the relevant text/chat models available on the configured keys,
 // fetched live from each provider and filtered. Self-updating.
