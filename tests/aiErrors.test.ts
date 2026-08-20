@@ -22,6 +22,10 @@ describe('explainAiError', () => {
     expect(out).not.toContain('xxxx');
   });
 
+  it('maps missing Cloudflare credentials', () => {
+    expect(explainAiError(new Error('Cloudflare Workers AI is not configured. Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN.'))).toMatch(/CLOUDFLARE_ACCOUNT_ID/);
+  });
+
   it('passes through a short unknown error', () => {
     expect(explainAiError(new Error('Persona prompt is required.'))).toBe('Persona prompt is required.');
   });

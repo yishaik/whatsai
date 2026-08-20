@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
+import { CF_IMAGE_MODEL, cfImageDataUri, cfReady, cfRun } from '../lib/cloudflareAi';
 
 // Per-IP rate limit backed by Convex (see api/persona-response.ts). Inlined to
 // avoid cross-dir imports in the ESM serverless runtime; fails open.
@@ -63,10 +64,17 @@ export default async function handler(req: any, res: any) {
         ? `${personaNames.slice(0, 3).join(', ')} and others`
         : personaNames.join(', ');
 
+    const imagePrompt = `A simple, circular, vector-art avatar for a group chat. The chat topic is "${topic}" with participants: ${participantsText}. The avatar should represent the theme or concept of the discussion. Clean, modern design with a flat background.`;
+
+    if (cfReady()) {
+      const result = await cfRun(CF_IMAGE_MODEL, { prompt: imagePrompt });
+      return res.status(200).json({ image: cfImageDataUri(result) });
+    }
+
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const response = await ai.models.generateImages({
       model: 'imagen-4.0-generate-001',
-      prompt: `A simple, circular, vector-art avatar for a group chat. The chat topic is "${topic}" with participants: ${participantsText}. The avatar should represent the theme or concept of the discussion. Clean, modern design with a flat background.`,
+      prompt: imagePrompt,
       config: {
         numberOfImages: 1,
         outputMimeType: 'image/png',

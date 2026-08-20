@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
+import { CF_DEFAULT_CHAT, cfOpenAI, cfReady } from '../lib/cloudflareAi';
 
 // Per-IP rate limit, backed by Convex (shared across lambda instances), so this
 // paid endpoint can't be hammered directly. Inlined (no cross-dir import — that
@@ -28,9 +29,12 @@ const ipLimitOk = async (req: any, action: string): Promise<boolean> => {
 // this serverless function runs as ESM and a cross-directory relative import
 // fails to resolve at runtime (ERR_MODULE_NOT_FOUND). The client keeps the full
 // registry; the server only needs default + provider routing.
-const DEFAULT_MODEL_ID = 'gemini-3.1-flash-lite-preview';
-const providerForModel = (id: string): 'openai' | 'gemini' =>
-  /^(gpt|o\d|chatgpt)/i.test(id) ? 'openai' : 'gemini';
+const DEFAULT_MODEL_ID = CF_DEFAULT_CHAT;
+const providerForModel = (id: string): 'openai' | 'gemini' | 'cloudflare' => {
+  if (id.startsWith('@cf/') || id.startsWith('workers-ai/')) return 'cloudflare';
+  if (/^(gpt-|o\d|chatgpt-)/i.test(id)) return 'openai';
+  return 'gemini';
+};
 
 // ==================== TOOL-USE (SKILLS) ====================
 // Persona "skills" map to callable tools. `web_search` is handled natively
@@ -269,9 +273,15 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Missing required fields.' });
     }
 
-    const requestedModel =
+    let requestedModel =
       typeof body.model === 'string' && body.model ? body.model : DEFAULT_MODEL_ID;
-    const provider = providerForModel(requestedModel);
+    let provider = providerForModel(requestedModel);
+    // When Cloudflare is configured it replaces Gemini/OpenAI keys: remap any
+    // leftover Gemini/GPT default onto a Workers AI model so existing chats work.
+    if (cfReady() && provider !== 'cloudflare') {
+      requestedModel = CF_DEFAULT_CHAT;
+      provider = 'cloudflare';
+    }
     // Per-chat temperature override, clamped to a safe range; default 0.9.
     const temperature =
       typeof body.temperature === 'number' && isFinite(body.temperature)
@@ -373,10 +383,14 @@ This is a fast, casual group chat — write like a real person texting, not an e
       let finalText = '';
       const usageOut = { provider, model: requestedModel, inputTokens: 0, outputTokens: 0 };
       try {
-        if (provider === 'openai') {
-          const openaiKey = process.env.OPENAI_API_KEY;
-          if (!openaiKey) throw new Error('OPENAI_API_KEY is not configured on the server.');
-          const openai = new OpenAI({ apiKey: openaiKey });
+        if (provider === 'openai' || provider === 'cloudflare') {
+          const openai = provider === 'cloudflare'
+            ? cfOpenAI()
+            : (() => {
+                const openaiKey = process.env.OPENAI_API_KEY;
+                if (!openaiKey) throw new Error('OPENAI_API_KEY is not configured on the server.');
+                return new OpenAI({ apiKey: openaiKey });
+              })();
           const userContent: any = images.length
             ? [{ type: 'text', text: userPromptText }, ...images.filter((i: any) => i?.url).map((i: any) => ({ type: 'image_url', image_url: { url: i.url } }))]
             : userPromptText;
@@ -433,8 +447,8 @@ This is a fast, casual group chat — write like a real person texting, not an e
       } catch (toolError) {
         console.error('Tool-calling failed, falling back to plain generation:', toolError);
         try {
-          if (provider === 'openai') {
-            const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
+          if (provider === 'openai' || provider === 'cloudflare') {
+            const openai = provider === 'cloudflare' ? cfOpenAI() : new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
             const userContent: any = images.length
               ? [{ type: 'text', text: userPromptText }, ...images.filter((i: any) => i?.url).map((i: any) => ({ type: 'image_url', image_url: { url: i.url } }))]
               : userPromptText;
@@ -462,15 +476,22 @@ This is a fast, casual group chat — write like a real person texting, not an e
       return;
     }
 
-    // ==================== OPENAI ====================
-    if (provider === 'openai') {
-      const openaiKey = process.env.OPENAI_API_KEY;
-      if (!openaiKey) {
-        const msg = 'OPENAI_API_KEY is not configured on the server.';
+    // ==================== OPENAI / CLOUDFLARE (OpenAI-compatible) ====================
+    if (provider === 'openai' || provider === 'cloudflare') {
+      let openai: OpenAI;
+      try {
+        openai = provider === 'cloudflare'
+          ? cfOpenAI()
+          : (() => {
+              const openaiKey = process.env.OPENAI_API_KEY;
+              if (!openaiKey) throw new Error('OPENAI_API_KEY is not configured on the server.');
+              return new OpenAI({ apiKey: openaiKey });
+            })();
+      } catch (cfgErr) {
+        const msg = cfgErr instanceof Error ? cfgErr.message : 'Chat provider is not configured.';
         if (wantStream) { const send = openSse(); send({ error: msg }); res.end(); return; }
         return res.status(500).json({ error: msg });
       }
-      const openai = new OpenAI({ apiKey: openaiKey });
       // Vision: attach images as image_url parts (OpenAI fetches the URLs).
       const userContent: any = images.length
         ? [

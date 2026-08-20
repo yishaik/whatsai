@@ -1,21 +1,14 @@
 import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
+import { CF_CHAT_MODELS, cfReady } from '../lib/cloudflareAi';
 
 // Returns the relevant text/chat models available on the configured keys,
-// fetched live from each provider and filtered. Self-updating. NOTE: no
-// cross-directory imports — this runs as an ESM serverless function and would
-// fail with ERR_MODULE_NOT_FOUND, so everything is inlined.
+// fetched live from each provider and filtered. Self-updating.
 
-type Option = { id: string; label: string; provider: 'gemini' | 'openai' };
+type Option = { id: string; label: string; provider: 'cloudflare' | 'gemini' | 'openai' };
 
-// Fallback if both providers fail / no keys.
-const FALLBACK: Option[] = [
-  { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', provider: 'gemini' },
-  { id: 'gpt-4o-mini', label: 'GPT-4o mini', provider: 'openai' },
-  { id: 'gpt-4o', label: 'GPT-4o', provider: 'openai' },
-  { id: 'gpt-4.1-mini', label: 'GPT-4.1 mini', provider: 'openai' },
-  { id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai' },
-];
+// Fallback if no provider is configured / all listings fail.
+const FALLBACK: Option[] = [...CF_CHAT_MODELS];
 
 // Dated snapshot suffix, e.g. -2024-08-06, -0613, -0125, -1106 (keep base alias).
 const DATED_SUFFIX = /-(\d{4}-\d{2}-\d{2}|\d{3,4})$/;
@@ -78,14 +71,13 @@ export default async function handler(_req: any, res: any) {
     }
 
     const [gemini, openai] = await Promise.all([geminiModels(), openaiModels()]);
-    let models = [...gemini, ...openai];
+    const cloudflare = cfReady() ? [...CF_CHAT_MODELS] : [];
+    let models = [...cloudflare, ...gemini, ...openai];
     if (models.length === 0) models = FALLBACK;
 
-    // Gemini group first, then OpenAI; alphabetical within each.
+    const order: Record<Option['provider'], number> = { cloudflare: 0, gemini: 1, openai: 2 };
     models.sort((a, b) =>
-      a.provider === b.provider
-        ? a.id.localeCompare(b.id)
-        : a.provider === 'gemini' ? -1 : 1,
+      a.provider === b.provider ? a.id.localeCompare(b.id) : order[a.provider] - order[b.provider],
     );
 
     cache = { at: Date.now(), models };

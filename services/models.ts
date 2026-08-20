@@ -2,7 +2,7 @@
 // live from /api/models (see hooks/useModels); this provides the fallback list
 // and id-based helpers that work for any model id without the full list.
 
-export type ModelProvider = 'gemini' | 'openai';
+export type ModelProvider = 'cloudflare' | 'gemini' | 'openai';
 
 export interface ModelOption {
   id: string;
@@ -10,21 +10,35 @@ export interface ModelOption {
   provider: ModelProvider;
 }
 
+export const PROVIDER_LABEL: Record<ModelProvider, string> = {
+  cloudflare: 'Cloudflare',
+  gemini: 'Gemini',
+  openai: 'OpenAI',
+};
+
+export const PROVIDER_ORDER: ModelProvider[] = ['cloudflare', 'gemini', 'openai'];
+
 // Used before /api/models responds, or if it fails / a key is missing.
 export const FALLBACK_MODELS: ModelOption[] = [
-  { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', provider: 'gemini' },
-  { id: 'gpt-4o-mini', label: 'GPT-4o mini', provider: 'openai' },
-  { id: 'gpt-4o', label: 'GPT-4o', provider: 'openai' },
-  { id: 'gpt-4.1-mini', label: 'GPT-4.1 mini', provider: 'openai' },
-  { id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai' },
+  { id: '@cf/meta/llama-3.1-8b-instruct-fast', label: 'Llama 3.1 8B Fast', provider: 'cloudflare' },
+  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'Llama 3.3 70B Fast', provider: 'cloudflare' },
+  { id: '@cf/openai/gpt-oss-20b', label: 'GPT-OSS 20B', provider: 'cloudflare' },
 ];
 
 // The fallback default before a user has chosen one.
-export const DEFAULT_MODEL_ID = 'gemini-3.1-flash-lite-preview';
+export const DEFAULT_MODEL_ID = '@cf/meta/llama-3.1-8b-instruct-fast';
 
-// Provider from the id alone (OpenAI ids start with gpt/o-series/chatgpt).
-export const providerForModel = (id: string): ModelProvider =>
-  /^(gpt|o\d|chatgpt)/i.test(id) ? 'openai' : 'gemini';
+// Provider from the id alone.
+export const providerForModel = (id: string): ModelProvider => {
+  if (id.startsWith('@cf/') || id.startsWith('workers-ai/')) return 'cloudflare';
+  if (/^(gpt-|o\d|chatgpt-)/i.test(id)) return 'openai';
+  return 'gemini';
+};
+
+export const groupedModels = (models: ModelOption[]): { provider: ModelProvider; label: string; models: ModelOption[] }[] =>
+  PROVIDER_ORDER
+    .map((p) => ({ provider: p, label: PROVIDER_LABEL[p], models: models.filter((m) => m.provider === p) }))
+    .filter((g) => g.models.length > 0);
 
 // Friendly label for an id, looked up in a (fetched) list, else the id itself.
 export const findModelLabel = (models: ModelOption[], id: string): string =>

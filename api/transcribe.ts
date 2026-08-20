@@ -1,6 +1,7 @@
 import OpenAI, { toFile } from 'openai';
 import { ConvexHttpClient } from 'convex/browser';
 import { makeFunctionReference } from 'convex/server';
+import { CF_WHISPER_MODEL, cfReady, cfRun } from '../lib/cloudflareAi';
 
 const clientIp = (req: any): string =>
   String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
@@ -31,7 +32,9 @@ export default async function handler(req: any, res: any) {
   }
 
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'OPENAI_API_KEY is not configured on the server.' });
+  if (!apiKey && !cfReady()) {
+    return res.status(500).json({ error: 'Set CLOUDFLARE_API_TOKEN or OPENAI_API_KEY for transcription.' });
+  }
 
   const audioBase64 = String(req.body?.audioBase64 || '');
   const mimeType = String(req.body?.mimeType || 'audio/webm');
@@ -54,6 +57,11 @@ export default async function handler(req: any, res: any) {
     : 'webm';
 
   try {
+    if (cfReady()) {
+      const result = await cfRun(CF_WHISPER_MODEL, { audio: Array.from(buffer) });
+      const text = (result?.text || result?.transcription || '').trim();
+      return res.status(200).json({ text });
+    }
     const openai = new OpenAI({ apiKey });
     const file = await toFile(buffer, `audio.${ext}`, { type: mimeType });
     const result = await openai.audio.transcriptions.create({ file, model: 'whisper-1' });

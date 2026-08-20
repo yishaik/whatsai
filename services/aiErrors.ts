@@ -6,6 +6,9 @@ export const explainAiError = (err: unknown): string => {
   const raw = err instanceof Error ? err.message : String(err ?? 'Unknown error');
   const s = raw.toLowerCase();
 
+  if (/cloudflare workers ai is not configured|cloudflare_account_id|cloudflare_api_token/.test(s)) {
+    return 'Cloudflare Workers AI is not configured. Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in Vercel.';
+  }
   if (/gemini_api_key environment variable is not set|api_key is not set/.test(s)) {
     return 'GEMINI_API_KEY is not set on the server. Add it in Vercel project settings.';
   }
