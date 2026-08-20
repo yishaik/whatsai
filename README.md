@@ -1,84 +1,52 @@
-# Run and deploy your AI Studio app
+# AI Persona Chat
 
-This project is a Vite + React web application that allows users to chat with AI personas. It now uses server-side API routes for Gemini calls so secrets stay on the server during local development and on Vercel.
+Build characters with distinct personalities and talk to them — one on one, or in a group chat where they also talk to each other.
+
+**Live:** https://whatsai.yishaik.com
+
+Most persona-chat demos are a system prompt and a text box. The interesting problems start right after that: what happens when five characters share a room, what one of them should still know about you next week, and what all of it costs. This is an attempt at those.
+
+## What it does
+
+- **Personas** — name, avatar, system prompt, optional web search, per-persona model override, and capability toggles (`services/skills.ts`).
+- **Group chats** — several personas in one room. `maxResponders` caps how many reply to a given message; `riffRounds` lets them talk to *each other* for N rounds before handing back to you.
+- **Long-term memory** — opt-in per persona. The character recalls durable facts about you before replying and distills new ones afterwards via a `[[MEMORY]]` token, over a MiniSearch index with its own recall, distillation and hygiene passes. It's the most tested part of the codebase (`memory/`, `tests/`).
+- **Rolling summaries** — long chats get compacted so older context stays reachable without resending it every turn.
+- **Voice** — live voice calls, transcription, and speech output.
+- **Reminders** — parsed out of a persona's reply, persisted, and delivered by web push. Repeats hourly, daily, weekly or monthly.
+- **Attachments, link previews, and full-text search** across chat history.
+- **Sharing** — publish any chat as a read-only public link.
+- **Usage dashboard** — input/output tokens and cost per model, because multi-persona rooms multiply requests fast.
+- Installable **PWA** with push notifications.
+
+## Stack
+
+React 19 · Vite 6 · Tailwind on the front. **Convex** for database, auth, scheduling and realtime. Model calls go through serverless routes in `api/` against Google Gemini and OpenAI, so no provider key ever reaches the browser; moderation runs server-side on `api/moderate`.
 
 ## Run locally
 
-**Prerequisites:** Node.js
+**Prerequisites:** Node 20+, a Convex deployment, and at least one provider key.
 
-1. Install dependencies:
-   `npm install`
-2. Create a `.env.local` file in the project root with:
-   `GEMINI_API_KEY=your_api_key`
-3. Start the full app with Vercel's local dev server:
-   `npm run dev:vercel`
-
-This runs the frontend and the `/api/*` serverless endpoints together.
-
-## Deploy to Vercel
-
-1. Import the repository into Vercel.
-2. Set the project environment variable:
-   `GEMINI_API_KEY=your_api_key`
-3. Deploy.
-
-Vercel should detect the project as a Vite application and build it with:
-
-- Install command: `npm install`
-- Build command: `npm run build`
-- Output directory: `dist`
-
-## Available scripts
-
-- `npm run dev`: Runs the Vite frontend only.
-- `npm run dev:vercel`: Runs the full app locally through `vercel dev` so both the frontend and API routes are available.
-- `npm run build`: Builds the frontend for production into `dist`.
-- `npm run preview`: Serves the built frontend locally for static preview only.
-
-## Project structure
-
-```text
-.
-├── api
-│   ├── avatar.ts
-│   ├── group-avatar.ts
-│   └── persona-response.ts
-├── .env.local
-├── .gitignore
-├── App.tsx
-├── components
-│   ├── Avatar.tsx
-│   ├── ChatList.tsx
-│   ├── ChatView.tsx
-│   ├── CreateChatModal.tsx
-│   ├── EditChatModal.tsx
-│   ├── MessageBubble.tsx
-│   ├── PersonaManager.tsx
-│   ├── SourceViewerModal.tsx
-│   └── StorageManager.tsx
-├── constants.ts
-├── data
-│   └── defaultPersonas.ts
-├── hooks
-│   └── useLocalStorage.ts
-├── index.html
-├── index.tsx
-├── package.json
-├── README.md
-├── services
-│   └── geminiService.ts
-├── tsconfig.json
-├── types.ts
-└── vite.config.ts
+```bash
+npm install
+cp .env.example .env.local      # fill in the values
+npx convex dev                  # terminal 1
+npm run dev:vercel              # terminal 2 — serves the app *and* the /api routes
 ```
 
-## Architecture
+`npm run dev` starts the Vite frontend alone. The `api/` routes won't be running, so persona replies will fail — use `dev:vercel`.
 
-- The React frontend calls `/api/persona-response`, `/api/avatar`, and `/api/group-avatar`.
-- Those API routes run server-side and use `GEMINI_API_KEY`.
-- This keeps the Gemini key out of the browser bundle.
+```bash
+npm test          # vitest
+npm run typecheck
+```
 
-## Notes
+Architecture notes are in [DEVELOPER_GUIDE.md](./DEVELOPER_GUIDE.md); shipping it is [DEPLOYMENT.md](./DEPLOYMENT.md).
 
-- `GEMINI_API_KEY` is the only environment variable you need for Gemini.
-- `npm run preview` does not emulate Vercel Functions. Use `npm run dev:vercel` for full local functionality.
+## About the bundled personas
+
+The defaults in `data/defaultPersonas.ts` include public figures, some of them living politicians. They exist to exercise tone, disagreement and turn-taking in group chats — they are prompt-driven caricatures, not endorsements, and not accurate representations of any real person. Delete or replace them if you'd rather start clean.
+
+## License
+
+MIT.
