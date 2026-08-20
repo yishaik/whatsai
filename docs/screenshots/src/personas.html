@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>WhatsAI — Personas</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="modal-scrim">
+    <div class="modal">
+      <div class="modal-h">
+        <h2>Manage Personas</h2>
+        <svg class="icon" viewBox="0 0 24 24" style="color:var(--icon)"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </div>
+      <div class="persona-card">
+        <img class="avatar" src="../avatars/mira.jpg" width="48" height="48" alt="" />
+        <div style="flex:1">
+          <h3>Mira Chen</h3>
+          <p>Meticulous research analyst. Looks things up, cites sources, summarizes findings clearly.</p>
+          <div class="tags">
+            <span class="tag on">Web search</span>
+            <span class="tag on">Read URLs</span>
+            <span class="tag">Gemini 3.1 Flash Lite</span>
+            <span class="tag on">Memory</span>
+          </div>
+        </div>
+      </div>
+      <div class="persona-card">
+        <img class="avatar" src="../avatars/jules.jpg" width="48" height="48" alt="" />
+        <div style="flex:1">
+          <h3>Jules Okonkwo</h3>
+          <p>Pragmatic startup advisor. Pressure-tests ideas, unit economics, blunt actionable feedback.</p>
+          <div class="tags">
+            <span class="tag on">Web search</span>
+            <span class="tag">GPT-4o</span>
+          </div>
+        </div>
+      </div>
+      <div class="persona-card">
+        <img class="avatar" src="../avatars/elena.jpg" width="48" height="48" alt="" />
+        <div style="flex:1">
+          <h3>Elena Voss</h3>
+          <p>Patient Socratic tutor. Teaches by asking, never just gives the answer.</p>
+          <div class="tags">
+            <span class="tag on">Calculator</span>
+            <span class="tag">GPT-4.1</span>
+          </div>
+        </div>
+      </div>
+      <div class="form">
+        <div class="templates">
+          <span class="tpl on">Research Analyst</span>
+          <span class="tpl">Socratic Tutor</span>
+          <span class="tpl">Startup Strategist</span>
+          <span class="tpl">Travel Planner</span>
+          <span class="tpl">Code Reviewer</span>
+          <span class="tpl">Zen Coach</span>
+        </div>
+        <label>Name</label>
+        <input value="Mira Chen" />
+        <label>System prompt</label>
+        <textarea>A meticulous research analyst who looks things up, cites sources, and summarizes findings clearly and neutrally.</textarea>
+        <label>Skills</label>
+        <div class="skill-row">
+          <span class="skill on">Web search</span>
+          <span class="skill on">Read URLs</span>
+          <span class="skill">Calculator</span>
+          <span class="skill">Date &amp; time</span>
+        </div>
+        <button class="primary">Save persona</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
