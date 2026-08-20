@@ -5,6 +5,7 @@ describe('providerForModel', () => {
   it('detects Cloudflare Workers AI ids', () => {
     expect(providerForModel('@cf/meta/llama-3.1-8b-instruct-fast')).toBe('cloudflare');
     expect(providerForModel('@cf/openai/gpt-oss-20b')).toBe('cloudflare');
+    expect(providerForModel('@cf/deepseek-ai/deepseek-v4-pro-0813')).toBe('cloudflare');
   });
 
   it('detects OpenAI ids', () => {

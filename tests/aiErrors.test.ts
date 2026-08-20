@@ -26,6 +26,12 @@ describe('explainAiError', () => {
     expect(explainAiError(new Error('Cloudflare Workers AI is not configured. Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN.'))).toMatch(/CLOUDFLARE_ACCOUNT_ID/);
   });
 
+  it('maps Workers Free plan blocks for paid models', () => {
+    const msg = 'AiError: Model @cf/deepseek-ai/deepseek-v4-pro-0813 is not available on the Workers Free plan. Upgrade to access this model.';
+    expect(explainAiError(new Error(msg))).toMatch(/Workers Paid plan/);
+    expect(isUnrecoverableAiError(new Error(msg))).toBe(true);
+  });
+
   it('passes through a short unknown error', () => {
     expect(explainAiError(new Error('Persona prompt is required.'))).toBe('Persona prompt is required.');
   });

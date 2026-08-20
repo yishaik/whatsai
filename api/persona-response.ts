@@ -159,6 +159,9 @@ const publicAiError = (error: unknown): string => {
   if (/gemini_api_key environment variable is not set/.test(s)) {
     return 'GEMINI_API_KEY is not set on the server. Add it in Vercel project settings.';
   }
+  if (/workers free plan|code"?\s*:\s*5035/.test(s)) {
+    return 'This model needs the Cloudflare Workers Paid plan. Upgrade at dash.cloudflare.com → Workers → Plans, then retry.';
+  }
   if (/api[_ ]key not valid|api_key_invalid|pass a valid api key/.test(s)) {
     return 'Gemini API key is invalid or revoked. Update GEMINI_API_KEY in Vercel project settings.';
   }

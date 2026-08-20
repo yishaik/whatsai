@@ -22,6 +22,9 @@ const PRICES: { match: RegExp; price: Price }[] = [
   { match: /1\.5-pro/, price: { in: 1.25, out: 5.0 } },
   { match: /flash/, price: { in: 0.3, out: 2.5 } },
   // Workers AI (approx. — Workers AI is billed per neuron, not tokens)
+  { match: /deepseek-v4-pro/, price: { in: 1.32, out: 3.96 } },
+  { match: /deepseek-v4-flash/, price: { in: 0.44, out: 1.32 } },
+  { match: /deepseek-r1-distill/, price: { in: 0.50, out: 4.88 } },
   { match: /@cf\/.*8b/, price: { in: 0.05, out: 0.15 } },
   { match: /@cf\/.*70b|gpt-oss-120b/, price: { in: 0.35, out: 0.99 } },
   { match: /@cf\//, price: { in: 0.1, out: 0.3 } },
