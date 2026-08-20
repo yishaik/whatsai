@@ -1,0 +1,47 @@
+name: Sync Cloudflare env to Vercel
+
+# One-shot: copies CLOUDFLARE_* GitHub secrets onto the Vercel project so
+# `vercel pull` / production functions can call Workers AI. Safe to re-run.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Upsert Vercel env vars
+        run: |
+          set -euo pipefail
+          if [ -z "${VERCEL_TOKEN:-}" ] || [ -z "${VERCEL_PROJECT_ID:-}" ]; then
+            echo "Missing VERCEL_TOKEN or VERCEL_PROJECT_ID"
+            exit 1
+          fi
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ] || [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "Missing CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN GitHub secrets"
+            exit 1
+          fi
+          upsert() {
+            local key="$1" val="$2"
+            local team=""
+            if [ -n "${VERCEL_ORG_ID:-}" ]; then
+              team="&teamId=${VERCEL_ORG_ID}"
+            fi
+            echo "Upserting $key (production, preview, development)"
+            curl -sS -X POST \
+              "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?upsert=true${team}" \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data "$(jq -n --arg k "$key" --arg v "$val" '{key:$k, value:$v, type:"encrypted", target:["production","preview","development"]}')" \
+              | jq '{created: .created, key: .key, target: .target, error: .error, message: .message}'
+          }
+          upsert CLOUDFLARE_ACCOUNT_ID "$CLOUDFLARE_ACCOUNT_ID"
+          upsert CLOUDFLARE_API_TOKEN "$CLOUDFLARE_API_TOKEN"
