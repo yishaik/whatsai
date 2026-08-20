@@ -176,12 +176,19 @@ npm run dev:vercel      # frontend + /api/* functions together
 
 `npm run dev` is the Vite UI only — persona replies and avatars will 404 without `dev:vercel`.
 
+Before you push to `main`, run the same gate CI runs:
+
+```bash
+npm run verify    # typecheck + test + production build
+```
+
 | Script | What it does |
 | --- | --- |
-| `npm run dev` | Vite frontend |
-| `npm run dev:vercel` | Full app: UI + serverless AI routes |
+| `npm run verify` | **CI gate:** typecheck + test + Vite build |
+| `npm run dev` | Vite frontend only |
+| `npm run dev:vercel` | Full app: UI + `/api/*` |
 | `npm run build` | Production frontend → `dist/` |
-| `npm test` | Vitest (memory engine, Convex, UI units) |
+| `npm test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` |
 
 Anonymous auth fires on first load so the app is usable with zero clicks. Sign in with Google when you want chats to follow you across devices and private rooms to stay private.
@@ -206,7 +213,7 @@ Deep-dive: [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) · ship it: [DEPLOYMENT.md](
 
 Production is **Vercel** (static Vite build + `api/*`) talking to a **Convex** deployment.
 
-On push to `main`: type-check → `convex deploy` → Vercel production. PRs get a preview URL commented on the PR.
+On push to `main` (non-docs): CI (`verify`) plus CD (tests → Convex → Vercel). PRs always get CI; add the `preview` label for a Vercel preview URL. See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 Required:
 

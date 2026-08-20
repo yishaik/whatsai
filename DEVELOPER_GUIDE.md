@@ -93,6 +93,7 @@ GEMINI_API_KEY=your_gemini_api_key_here
 ### Available scripts
 
 ```bash
+npm run verify       # CI gate: typecheck + test + production build
 npm run dev          # Vite frontend only
 npm run dev:vercel   # Full app: frontend + /api routes
 npm run build        # Production frontend build
