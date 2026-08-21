@@ -6,6 +6,10 @@ describe('providerForModel', () => {
     expect(providerForModel('@cf/meta/llama-3.1-8b-instruct-fast')).toBe('cloudflare');
     expect(providerForModel('@cf/openai/gpt-oss-20b')).toBe('cloudflare');
     expect(providerForModel('@cf/deepseek-ai/deepseek-v4-pro-0813')).toBe('cloudflare');
+    expect(providerForModel('groq/openai/gpt-oss-20b')).toBe('groq');
+    expect(providerForModel('cerebras/gpt-oss-120b')).toBe('cerebras');
+    expect(providerForModel('openrouter/google/gemma-4-31b-it:free')).toBe('openrouter');
+    expect(providerForModel('nvidia/meta/llama-3.1-8b-instruct')).toBe('nvidia');
   });
 
   it('detects OpenAI ids', () => {

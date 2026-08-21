@@ -3,7 +3,7 @@ import { ChatRoom, Persona } from '../types';
 import { XMarkIcon, ArrowPathIcon } from './icons';
 import Avatar from './Avatar';
 import { useModels } from '../hooks/useModels';
-import { groupedModels } from '../services/models';
+import ModelPicker from './ModelPicker';
 import { exportChatMarkdown, downloadText, slugify } from '../services/exportChat';
 
 interface EditChatModalProps {
@@ -212,25 +212,13 @@ const EditChatModal: React.FC<EditChatModalProps> = ({
               <h3 className="text-sm font-semibold text-text-primary">Chat settings</h3>
 
               <div>
-                <label htmlFor="chat-model" className="block text-sm font-medium text-text-secondary mb-1">Model</label>
-                <select
-                  id="chat-model"
+                <ModelPicker
+                  models={models}
                   value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="w-full bg-item-active-bg border border-item-hover-bg text-text-primary rounded-md p-2 focus:ring-accent-green focus:border-accent-green"
-                >
-                  <option value="">Default (my setting / per-persona)</option>
-                  {groupedModels(models).map((g) => (
-                    <optgroup key={g.provider} label={g.label}>
-                      {g.models.map((m) => (
-                        <option key={m.id} value={m.id}>{m.label}</option>
-                      ))}
-                    </optgroup>
-                  ))}
-                  {model && !models.some((m) => m.id === model) && (
-                    <option value={model}>{model}</option>
-                  )}
-                </select>
+                  onChange={setModel}
+                  emptyLabel="Default (my setting / per-persona)"
+                  idPrefix="chat"
+                />
                 <p className="text-xs text-text-secondary mt-1">A persona's own model override still wins over this.</p>
               </div>
 

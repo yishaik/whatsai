@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Persona } from '../types';
 import { XMarkIcon, PencilIcon, MagnifyingGlassIcon, ArrowPathIcon, TrashIcon } from './icons';
 import Avatar from './Avatar';
-import { findModelLabel, groupedModels, providerForModel } from '../services/models';
+import { findModelLabel, providerForModel } from '../services/models';
+import ModelPicker from './ModelPicker';
 import { useModels } from '../hooks/useModels';
 import { SKILLS } from '../services/skills';
 import { PERSONA_TEMPLATES } from '../services/personaTemplates';
@@ -268,25 +269,16 @@ const PersonaManager: React.FC<PersonaManagerProps> = ({ isOpen, onClose, person
                 </div>
               </div>
               <div>
-                <label htmlFor="persona-model" className="block text-sm font-medium text-text-secondary mb-1">Model</label>
-                <select
-                  id="persona-model"
+                <ModelPicker
+                  models={models}
                   value={model}
-                  onChange={(e) => setModel(e.target.value)}
+                  onChange={setModel}
+                  emptyLabel={`Default (${findModelLabel(models, defaultModel)})`}
                   disabled={isCreating}
-                  className="w-full bg-item-active-bg border-gray-600 text-text-primary rounded-md p-2 focus:ring-accent-green focus:border-accent-green disabled:opacity-50"
-                >
-                  <option value="">Default ({findModelLabel(models, defaultModel)})</option>
-                  {groupedModels(models).map((g) => (
-                    <optgroup key={g.provider} label={g.label}>
-                      {g.models.map((m) => (
-                        <option key={m.id} value={m.id}>{m.label}</option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
+                  idPrefix="persona"
+                />
                 {skills.has('web_search') && model && providerForModel(model) !== 'gemini' && (
-                  <p className="text-xs text-yellow-500/80 mt-1">Note: web search (Google) only works on Gemini. Cloudflare and GPT ignore it — use Read URLs instead.</p>
+                  <p className="text-xs text-yellow-500/80 mt-1">Note: web search (Google) only works on Gemini. Other providers ignore it — use Read URLs instead.</p>
                 )}
               </div>
               <div>
