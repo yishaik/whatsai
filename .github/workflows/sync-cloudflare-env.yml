@@ -20,6 +20,7 @@ jobs:
       CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      VOICE_AGENT_HOST: ${{ secrets.VOICE_AGENT_HOST }}
     steps:
       - name: Upsert Vercel env vars
         run: |
@@ -56,6 +57,6 @@ jobs:
                   'message': data.get('message'),
               }
               print(json.dumps(out))
-          for k in ['CLOUDFLARE_ACCOUNT_ID','CLOUDFLARE_API_TOKEN','GROQ_API_KEY','CEREBRAS_API_KEY','OPENROUTER_API_KEY','NVIDIA_API_KEY']:
+          for k in ['CLOUDFLARE_ACCOUNT_ID','CLOUDFLARE_API_TOKEN','GROQ_API_KEY','CEREBRAS_API_KEY','OPENROUTER_API_KEY','NVIDIA_API_KEY','VOICE_AGENT_HOST']:
               upsert(k, os.environ.get(k, ''))
           PY

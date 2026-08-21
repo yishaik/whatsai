@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "whatsai-voice",
+  "main": "worker/index.ts",
+  "account_id": "0f6475716c1a85bfa0a5956792e85b52",
+  "compatibility_date": "2026-08-21",
+  "compatibility_flags": ["nodejs_compat"],
+  "ai": { "binding": "AI" },
+  "durable_objects": {
+    "bindings": [
+      { "name": "PersonaVoiceAgent", "class_name": "PersonaVoiceAgent" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PersonaVoiceAgent"] }
+  ],
+  "observability": { "enabled": true },
+  "vars": {
+    "ALLOWED_ORIGINS": "https://whatsai.yishaik.com,https://whatsai-one.vercel.app,http://localhost:3000,http://localhost:5173,http://localhost:8787"
+  }
+}
