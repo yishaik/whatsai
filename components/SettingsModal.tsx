@@ -3,7 +3,8 @@ import { XMarkIcon } from './icons';
 import { useModels } from '../hooks/useModels';
 import { UsageRow } from '../types';
 import { estimateCostUsd, formatUsd } from '../services/pricing';
-import { findModelLabel, groupedModels } from '../services/models';
+import { findModelLabel } from '../services/models';
+import ModelPicker from './ModelPicker';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -31,8 +32,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, defaultM
 
   if (!isOpen) return null;
 
-  const groups = groupedModels(models);
-
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
       <div className="bg-panel-bg rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
@@ -49,23 +48,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, defaultM
             <p className="text-xs text-text-secondary mb-3">
               Used for personas that don't pick their own model. Per-persona overrides live in Manage Personas.
             </p>
-            <select
+            <ModelPicker
+              models={models}
               value={defaultModel}
-              onChange={(e) => onSetDefaultModel(e.target.value)}
-              className="w-full bg-item-active-bg border border-item-hover-bg text-text-primary rounded-md p-2 focus:ring-accent-green focus:border-accent-green"
-            >
-              {groups.map((g) => (
-                <optgroup key={g.provider} label={g.label}>
-                  {g.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                </optgroup>
-              ))}
-              {/* Ensure the saved value is selectable even if it's not in the live list. */}
-              {!models.some((m) => m.id === defaultModel) && (
-                <option value={defaultModel}>{defaultModel}</option>
-              )}
-            </select>
+              onChange={onSetDefaultModel}
+              idPrefix="settings"
+            />
             <p className="text-xs text-text-secondary mt-2">
-              The list updates automatically from the models available on the server.
+              Cloudflare is live. Groq, Cerebras, OpenRouter, and NVIDIA appear in the list; they need their API keys on the server.
             </p>
           </div>
 
