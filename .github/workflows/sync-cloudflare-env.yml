@@ -23,32 +23,39 @@ jobs:
     steps:
       - name: Upsert Vercel env vars
         run: |
-          set -euo pipefail
-          if [ -z "${VERCEL_TOKEN:-}" ] || [ -z "${VERCEL_PROJECT_ID:-}" ]; then
-            echo "Missing VERCEL_TOKEN or VERCEL_PROJECT_ID"
-            exit 1
-          fi
-          upsert() {
-            local key="$1" val="$2"
-            if [ -z "$val" ]; then
-              echo "Skipping $key (secret not set)"
-              return 0
-            fi
-            local team=""
-            if [ -n "${VERCEL_ORG_ID:-}" ]; then
-              team="&teamId=${VERCEL_ORG_ID}"
-            fi
-            echo "Upserting $key (production, preview, development)"
-            curl -sS -X POST \
-              "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?upsert=true${team}" \
-              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-              -H "Content-Type: application/json" \
-              --data "$(jq -n --arg k \"$key\" --arg v \"$val\" '{key:$k, value:$v, type:\"encrypted\", target:[\"production\",\"preview\",\"development\"]}')" \
-              | jq '{created: .created, key: .key, target: .target, error: .error, message: .message}'
-          }
-          upsert CLOUDFLARE_ACCOUNT_ID "${CLOUDFLARE_ACCOUNT_ID:-}"
-          upsert CLOUDFLARE_API_TOKEN "${CLOUDFLARE_API_TOKEN:-}"
-          upsert GROQ_API_KEY "${GROQ_API_KEY:-}"
-          upsert CEREBRAS_API_KEY "${CEREBRAS_API_KEY:-}"
-          upsert OPENROUTER_API_KEY "${OPENROUTER_API_KEY:-}"
-          upsert NVIDIA_API_KEY "${NVIDIA_API_KEY:-}"
+          python3 <<'PY'
+          import json, os, urllib.request
+          token = os.environ['VERCEL_TOKEN']
+          project = os.environ['VERCEL_PROJECT_ID']
+          org = os.environ.get('VERCEL_ORG_ID', '')
+          url = f'https://api.vercel.com/v10/projects/{project}/env?upsert=true'
+          if org:
+              url += f'&teamId={org}'
+          def upsert(key, val):
+              if not val:
+                  print(f'Skipping {key} (secret not set)')
+                  return
+              print(f'Upserting {key} (production, preview, development)')
+              body = json.dumps({
+                  'key': key,
+                  'value': val,
+                  'type': 'encrypted',
+                  'target': ['production', 'preview', 'development'],
+              }).encode()
+              req = urllib.request.Request(url, data=body, method='POST', headers={
+                  'Authorization': f'Bearer {token}',
+                  'Content-Type': 'application/json',
+              })
+              with urllib.request.urlopen(req) as resp:
+                  data = json.load(resp)
+              out = {
+                  'created': bool(data.get('created')),
+                  'key': data.get('key'),
+                  'target': data.get('target'),
+                  'error': data.get('error'),
+                  'message': data.get('message'),
+              }
+              print(json.dumps(out))
+          for k in ['CLOUDFLARE_ACCOUNT_ID','CLOUDFLARE_API_TOKEN','GROQ_API_KEY','CEREBRAS_API_KEY','OPENROUTER_API_KEY','NVIDIA_API_KEY']:
+              upsert(k, os.environ.get(k, ''))
+          PY
