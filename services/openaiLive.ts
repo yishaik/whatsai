@@ -5,7 +5,9 @@ export interface LiveVoiceHandlers {
   onError?: (message: string) => void;
 }
 
-// Browser WebRTC session against OpenAI Realtime using an ephemeral client secret.
+// Browser WebRTC against OpenAI Realtime. SDP is exchanged through
+// /api/voice-session so the OpenAI key never reaches the client (and we
+// avoid a CORS POST to api.openai.com).
 export class OpenAiLiveSession {
   private pc: RTCPeerConnection | null = null;
   private dc: RTCDataChannel | null = null;
@@ -20,7 +22,7 @@ export class OpenAiLiveSession {
     this.handlers.onStatus?.(s);
   }
 
-  async start(clientSecret: string, systemInstruction: string): Promise<void> {
+  async start(systemInstruction: string, voiceName: string): Promise<void> {
     this.setStatus('connecting');
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -65,19 +67,21 @@ export class OpenAiLiveSession {
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      const sdpResponse = await fetch('https://api.openai.com/v1/realtime/calls', {
+      const resp = await fetch('/api/voice-session', {
         method: 'POST',
-        body: offer.sdp,
-        headers: {
-          Authorization: `Bearer ${clientSecret}`,
-          'Content-Type': 'application/sdp',
-        },
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'openai',
+          sdp: offer.sdp,
+          systemInstruction,
+          voiceName,
+        }),
       });
-      if (!sdpResponse.ok) {
-        const detail = await sdpResponse.text().catch(() => `${sdpResponse.status}`);
-        throw new Error(`OpenAI realtime connect failed: ${detail.slice(0, 280)}`);
+      const body = await resp.json().catch(() => ({}));
+      if (!resp.ok || !body.sdp) {
+        throw new Error(body.error || `OpenAI realtime connect failed (${resp.status})`);
       }
-      await pc.setRemoteDescription({ type: 'answer', sdp: await sdpResponse.text() });
+      await pc.setRemoteDescription({ type: 'answer', sdp: body.sdp });
     } catch (error) {
       this.handlers.onError?.(error instanceof Error ? error.message : 'Failed to start OpenAI voice');
       this.setStatus('error');

@@ -48,6 +48,32 @@ const missingMessage = (provider: VoiceProvider): string => {
   return 'Grok voice needs XAI_API_KEY on the server (console.x.ai).';
 };
 
+const errorText = (err: unknown): string => {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === 'string') return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err ?? 'Unknown error');
+  }
+};
+
+const explainVoiceError = (err: unknown): string => {
+  const raw = errorText(err);
+  const s = raw.toLowerCase();
+  if (/api[_ ]key not valid|api_key_invalid|pass a valid api key/.test(s)) {
+    return 'Gemini API key is invalid or revoked. Create a new key at aistudio.google.com/apikey, put it in GitHub secret GEMINI_API_KEY, then run Sync Cloudflare env to Vercel and Deploy Production.';
+  }
+  if (/used all available credits|monthly spending limit|insufficient.?credits/.test(s)) {
+    return 'xAI/Grok is out of credits or at its spending limit. Add credits at console.x.ai, then retry.';
+  }
+  if (/incorrect api key provided|invalid_api_key/.test(s)) {
+    return 'OpenAI API key is invalid or revoked. Update GitHub secret OPENAI_API_KEY, sync env, redeploy.';
+  }
+  if (raw.length > 280) return raw.slice(0, 280);
+  return raw;
+};
+
 const mintGemini = async (systemInstruction?: string, voiceName?: string) => {
   const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
   if (!apiKey) throw new Error(missingMessage('gemini'));
@@ -74,31 +100,32 @@ const mintGemini = async (systemInstruction?: string, voiceName?: string) => {
   return { provider: 'gemini' as const, token: token.name, model: GEMINI_LIVE_MODEL };
 };
 
-const mintOpenAi = async (systemInstruction?: string, voiceName?: string) => {
+const openAiSessionConfig = (systemInstruction?: string, voiceName?: string) =>
+  JSON.stringify({
+    type: 'realtime',
+    model: OPENAI_REALTIME_MODEL,
+    instructions: systemInstruction || 'You are on a live voice call. Stay in character and keep replies short.',
+    audio: { output: { voice: voiceName || 'marin' } },
+  });
+
+// Browser WebRTC cannot POST SDP to api.openai.com (CORS). We exchange SDP
+// here with the real key, then return the answer SDP to the client.
+const mintOpenAiSdp = async (sdp: string, systemInstruction?: string, voiceName?: string) => {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error(missingMessage('openai'));
-  const resp = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
+  const fd = new FormData();
+  fd.set('sdp', sdp);
+  fd.set('session', openAiSessionConfig(systemInstruction, voiceName));
+  const resp = await fetch('https://api.openai.com/v1/realtime/calls', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      session: {
-        type: 'realtime',
-        model: OPENAI_REALTIME_MODEL,
-        instructions: systemInstruction || 'You are on a live voice call. Stay in character and keep replies short.',
-        audio: { output: { voice: voiceName || 'marin' } },
-      },
-    }),
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: fd,
   });
-  const data = await resp.json().catch(() => ({}));
-  const clientSecret = data.value || data.client_secret?.value;
-  if (!resp.ok || !clientSecret) {
-    const msg = data.error?.message || data.error || `OpenAI client secret HTTP ${resp.status}`;
-    throw new Error(String(msg));
+  const answer = await resp.text();
+  if (!resp.ok) {
+    throw new Error(answer.slice(0, 400) || `OpenAI realtime HTTP ${resp.status}`);
   }
-  return { provider: 'openai' as const, clientSecret, model: OPENAI_REALTIME_MODEL };
+  return { provider: 'openai' as const, sdp: answer, model: OPENAI_REALTIME_MODEL };
 };
 
 const mintGrok = async () => {
@@ -116,7 +143,7 @@ const mintGrok = async () => {
   const clientSecret = data.value || data.client_secret?.value || data.token;
   if (!resp.ok || !clientSecret) {
     const msg = data.error?.message || data.error || data.message || `xAI client secret HTTP ${resp.status}`;
-    throw new Error(String(msg));
+    throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
   }
   return {
     provider: 'grok' as const,
@@ -165,13 +192,17 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ ...(await mintGemini(systemInstruction, voiceName)), available: live });
     }
     if (provider === 'openai') {
-      return res.status(200).json({ ...(await mintOpenAi(systemInstruction, voiceName)), available: live });
+      const sdp = typeof body.sdp === 'string' ? body.sdp : '';
+      if (!sdp) {
+        return res.status(400).json({ error: 'OpenAI voice needs an SDP offer from the browser.', available: live });
+      }
+      return res.status(200).json({ ...(await mintOpenAiSdp(sdp, systemInstruction, voiceName)), available: live });
     }
     return res.status(200).json({ ...(await mintGrok()), available: live });
   } catch (error) {
     console.error('Error starting voice session:', error);
     return res.status(500).json({
-      error: error instanceof Error ? error.message : 'Failed to start voice session.',
+      error: explainVoiceError(error),
       available: available(),
     });
   }
