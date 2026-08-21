@@ -69,6 +69,7 @@ export default defineSchema({
   userSettings: defineTable({
     userId: v.id("users"),
     defaultModel: v.string(),
+    voiceProvider: v.optional(v.string()),
   }).index("by_user", ["userId"]),
 
   // Fixed-window rate-limit counters, keyed by `${userId}:${action}`.
