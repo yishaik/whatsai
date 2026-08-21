@@ -83,7 +83,7 @@ Create a room, pick who is in it, set a topic. Then:
 
 ### 3. Voice. Not a gimmick.
 
-Tap the phone icon. You're on a live call with a persona, in character, using Gemini Live (the one path that still needs a Gemini key). Mute, hang up, or tap another face in the room to switch who is on the line — each reconnects with its own voice.
+Tap the phone icon. You're on a live call with a persona, in character, over Cloudflare Voice (`@cloudflare/voice`: Flux STT, Aura TTS, Llama on a Worker). Mute, hang up, or tap another face in the room to switch who is on the line — the call stays up and the speaker changes.
 
 Messages can also be **spoken back** (Cloudflare MeloTTS, with browser speech as fallback) or **dictated** (record a voice note → Whisper turbo into the composer).
 
@@ -121,21 +121,20 @@ Because a toy messenger is still a toy.
 ┌─────────────────────────────────────────────────────────────┐
 │  Browser  ·  React 19  ·  Vite 6  ·  PWA                    │
 │  WhatsApp-style UI, anonymous session, Google upgrade       │
-└───────────────┬───────────────────────────────┬─────────────┘
-                │ WebSocket                     │ fetch /api/*
-                ▼                               ▼
-┌───────────────────────────┐     ┌─────────────────────────────┐
-│  Convex                   │     │  Vercel Functions           │
-│  personas · rooms · msgs  │     │  /persona-response (stream) │
-│  auth · memory · search   │     │  /avatar  /group-avatar     │
-│  reminders · push · usage │     │  /generate-image  /tts      │
-│  share links · rate limit │     │  /transcribe  /live-token   │
-└───────────────────────────┘     │  /moderate  /summarize      │
-                                  │  Keys stay here, never UI   │
-                                  └─────────────────────────────┘
+└──────┬──────────────────────┬───────────────────┬───────────┘
+       │ WebSocket            │ fetch /api/*      │ Voice WS
+       ▼                      ▼                   ▼
+┌──────────────────┐  ┌──────────────────────┐  ┌─────────────────────┐
+│  Convex          │  │  Vercel Functions    │  │  Cloudflare Worker  │
+│  personas · msgs │  │  /persona-response   │  │  whatsai-voice      │
+│  auth · memory   │  │  /avatar /image /tts │  │  Flux STT · Aura    │
+│  reminders ·push │  │  /transcribe /models │  │  Llama · Durable DO │
+│  rate limit      │  │  /voice-session      │  └─────────────────────┘
+└──────────────────┘  │  Keys stay here      │
+                      └──────────────────────┘
 ```
 
-**The browser never holds an API key.** `services/geminiService.ts` is a thin client over `/api/*`. Chat, images, STT, and TTS go through **Cloudflare Workers AI** when `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` are set. Optional OpenAI-compatible keys unlock Groq, Cerebras, OpenRouter, and NVIDIA. Gemini is only required for **live voice**.
+**The browser never holds an API key.** `services/geminiService.ts` is a thin client over `/api/*`. Chat, images, STT, and TTS go through **Cloudflare Workers AI** when `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` are set. Optional OpenAI-compatible keys unlock Groq, Cerebras, OpenRouter, and NVIDIA. Live voice is a **Cloudflare Voice Worker** (`worker/`, Flux + Aura + Llama); `/api/voice-session` only rate-limits and returns the Worker host.
 
 **Convex is the source of truth.** Rooms, messages, avatars (file storage), reminders, push subscriptions, and the memory vault are reactive. Multiple open clients on the same public room won't double-generate: a `responseClaims` table lets only one tab win the slot for a given persona × trigger message.
 
@@ -166,8 +165,8 @@ CEREBRAS_API_KEY=
 OPENROUTER_API_KEY=
 NVIDIA_API_KEY=
 
-# Optional — live voice calls only
-GEMINI_API_KEY=
+# Live voice — Cloudflare Voice Worker host (`npx wrangler deploy`)
+VOICE_AGENT_HOST=http://localhost:8787
 
 # Convex (from `npx convex dev`)
 CONVEX_DEPLOYMENT=dev:your-deployment
@@ -179,14 +178,17 @@ Then two terminals:
 ```bash
 npx convex dev          # backend + codegen
 npm run dev:vercel      # frontend + /api/* functions together
+npm run dev:voice       # Cloudflare Voice Worker (wrangler, port 8787)
 ```
 
-`npm run dev` is the Vite UI only — persona replies and avatars will 404 without `dev:vercel`. Before pushing to `main`, run `npm run verify` (typecheck + tests + build).
+`npm run dev` is the Vite UI only — persona replies and avatars will 404 without `dev:vercel`. Voice calls also need `dev:voice` (and `VOICE_AGENT_HOST=http://localhost:8787`). Before pushing to `main`, run `npm run verify` (typecheck + tests + build).
 
 | Script | What it does |
 | --- | --- |
 | `npm run dev` | Vite frontend |
 | `npm run dev:vercel` | Full app: UI + serverless AI routes |
+| `npm run dev:voice` | Cloudflare Voice Worker on `:8787` |
+| `npm run deploy:voice` | `wrangler deploy` the voice Worker |
 | `npm run build` | Production frontend → `dist/` |
 | `npm test` | Vitest (memory engine, Convex, UI units) |
 | `npm run typecheck` | `tsc --noEmit` |
@@ -202,7 +204,8 @@ Anonymous auth fires on first load so the app is usable with zero clicks. Sign i
 | --- | --- | --- |
 | UI | React 19, TypeScript, Tailwind, Vite 6 | Fast, typed, the WhatsApp palette is first-class in `tailwind.config.js` |
 | Data | [Convex](https://convex.dev) + Convex Auth | Reactive queries, file storage, scheduled functions, search indexes |
-| Models | Cloudflare Workers AI + OpenAI-compatible extras | Llama/Gemma/GPT-OSS/Qwen/DeepSeek on CF; Groq, Cerebras, OpenRouter, NVIDIA optional; Gemini Live for voice |
+| Models | Cloudflare Workers AI + OpenAI-compatible extras | Llama/Gemma/GPT-OSS/Qwen/DeepSeek on CF; Groq, Cerebras, OpenRouter, NVIDIA optional |
+| Live voice | Cloudflare Worker + `@cloudflare/voice` | Flux STT, Aura TTS, Llama 3.1 8B Fast on a Durable Object |
 | AI routes | Vercel Functions in `api/` | Secrets stay server-side; streaming persona replies |
 | Client extras | MiniSearch, TanStack Virtual, Web Push, vite-plugin-pwa | Instant search, long-thread scrolling, reminders that land, installable app |
 
@@ -214,15 +217,15 @@ Deep-dive: [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) · ship it: [DEPLOYMENT.md](
 
 Production is **Vercel** (static Vite build + `api/*`) talking to a **Convex** deployment.
 
-On push to `main`: type-check → `convex deploy` → Vercel production. PRs are verified by CI; a Vercel preview deploys only if the PR has the `preview` label. Manual prod: Actions → Deploy Production → Run workflow.
+On push to `main`: type-check → `wrangler deploy` (voice Worker) → `convex deploy` → Vercel production. PRs are verified by CI; a Vercel preview deploys only if the PR has the `preview` label. Manual prod: Actions → Deploy Production → Run workflow.
 
 Required:
 
 | Where | Variable |
 | --- | --- |
-| Vercel | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `VITE_CONVEX_URL` |
-| Vercel (optional) | `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`, `NVIDIA_API_KEY`, `GEMINI_API_KEY` (live voice) |
-| GitHub Actions | `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `CONVEX_DEPLOY_KEY`, plus the same AI keys to sync onto Vercel |
+| Vercel | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `VITE_CONVEX_URL`, `VOICE_AGENT_HOST` |
+| Vercel (optional) | `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`, `NVIDIA_API_KEY` |
+| GitHub Actions | `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `CONVEX_DEPLOY_KEY`, `CLOUDFLARE_API_TOKEN`, plus the same AI keys to sync onto Vercel |
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the exact pipeline and the fallback `vercel deploy` commands.
 
@@ -236,14 +239,15 @@ Live:
 ## Project map
 
 ```text
-api/                 Serverless AI routes (chat, image, STT, TTS, models)
+api/                 Serverless AI routes (chat, image, STT, TTS, models, voice-session)
 lib/                 Cloudflare + OpenAI-compatible provider helpers
+worker/              Cloudflare Voice Agent (Flux STT, Aura TTS, Llama)
 components/          ChatList, ChatView, PersonaManager, ModelPicker, voice
 convex/              Schema, auth, chat, memory, reminders, push, sharing
 data/                Default personas
 hooks/               Convex data, live models, messages
 memory/              Napkin-style MemoryEngine (storage-agnostic)
-services/            Client wrappers: skills, speech, live voice, export, pricing
+services/            Client wrappers: skills, speech, voice, export, pricing
 docs/screenshots/    README captures of the real UI
 ```
 
