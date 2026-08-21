@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhatsAI — how each part works</title>
+  <link rel="icon" type="image/svg+xml" href="screenshots/avatars/icon.svg" />
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "dark",
+      securityLevel: "loose",
+      flowchart: { curve: "basis", htmlLabels: true },
+      sequence: { actorMargin: 28, messageMargin: 28, boxMargin: 8 },
+      themeVariables: {
+        darkMode: true,
+        background: "#101B20",
+        primaryColor: "#202C33",
+        primaryTextColor: "#E9EDEF",
+        primaryBorderColor: "#00A884",
+        secondaryColor: "#1a2830",
+        tertiaryColor: "#090E11",
+        lineColor: "#8696A0",
+        textColor: "#E9EDEF",
+        mainBkg: "#202C33",
+        nodeBorder: "#00A884",
+        clusterBkg: "#0d161a",
+        clusterBorder: "#2A3942",
+        titleColor: "#00A884",
+        actorBkg: "#202C33",
+        actorBorder: "#00A884",
+        actorTextColor: "#E9EDEF",
+        actorLineColor: "#2A3942",
+        signalColor: "#E9EDEF",
+        signalTextColor: "#E9EDEF",
+        labelBoxBkgColor: "#101B20",
+        labelTextColor: "#53BDEB",
+        noteBkgColor: "#005C4B",
+        noteTextColor: "#E9EDEF",
+        noteBorderColor: "#00A884",
+        activationBkgColor: "#2A3942",
+        sequenceNumberColor: "#090E11",
+      },
+    });
+    document.addEventListener("DOMContentLoaded", () => {
+      mermaid.run({ querySelector: ".mermaid:not(.mermaid-lazy)" });
+    });
+  </script>
+  <style>
+    :root {
+      --bg: #090E11;
+      --panel: #101B20;
+      --header: #202C33;
+      --hover: #222E35;
+      --active: #2A3942;
+      --icon: #8696A0;
+      --text: #E9EDEF;
+      --muted: #8696A0;
+      --green: #00A884;
+      --blue: #53BDEB;
+      --out: #005C4B;
+      --warn: #ef9f27;
+      --danger: #f15c6d;
+      --font: "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code, .mono {
+      font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+      font-size: 0.86em;
+      background: var(--active);
+      padding: 0.12em 0.4em;
+      border-radius: 4px;
+      color: #cde7df;
+    }
+    pre.mermaid, .mermaid {
+      background: var(--panel);
+      border: 1px solid var(--hover);
+      border-radius: 12px;
+      padding: 18px 12px;
+      overflow-x: auto;
+      margin: 16px 0 8px;
+    }
+    .layout { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+    nav {
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+      background: var(--panel);
+      border-right: 1px solid var(--hover);
+      padding: 20px 12px 32px;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 18px; }
+    .brand img { width: 36px; height: 36px; border-radius: 9px; }
+    .brand strong { display: block; font-size: 15px; }
+    .brand span { font-size: 12px; color: var(--muted); }
+    nav a.nav-link {
+      display: block;
+      color: var(--muted);
+      padding: 7px 12px;
+      border-radius: 8px;
+      font-size: 13.5px;
+      text-decoration: none;
+    }
+    nav a.nav-link:hover { background: var(--hover); color: var(--text); text-decoration: none; }
+    nav a.nav-link.active { background: var(--active); color: var(--green); }
+    nav .group { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--icon); padding: 16px 12px 6px; }
+    main { max-width: 980px; padding: 36px 40px 80px; }
+    h1 { font-size: 32px; letter-spacing: -0.02em; margin-bottom: 8px; }
+    h2 { font-size: 22px; margin: 48px 0 10px; padding-top: 12px; color: var(--text); }
+    h2 .n { color: var(--green); font-variant-numeric: tabular-nums; margin-right: 8px; }
+    h3 { font-size: 16px; margin: 28px 0 8px; color: var(--blue); }
+    .lede { color: var(--muted); font-size: 16px; max-width: 46rem; margin-bottom: 24px; }
+    p { margin: 10px 0; }
+    ul, ol { margin: 8px 0 8px 1.3rem; }
+    li { margin: 4px 0; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 18px 0 8px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--hover);
+      border-radius: 12px;
+      padding: 14px 14px 12px;
+      cursor: pointer;
+      color: inherit;
+      text-decoration: none;
+      display: block;
+    }
+    .card:hover { border-color: var(--green); text-decoration: none; }
+    .card .kicker { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--green); margin-bottom: 4px; }
+    .card h3 { margin: 0 0 6px; color: var(--text); font-size: 15px; }
+    .card p { margin: 0; font-size: 12.5px; color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0 8px; font-size: 13.5px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--hover); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    tr:hover td { background: var(--panel); }
+    .callout {
+      border-left: 3px solid var(--green);
+      background: var(--panel);
+      padding: 10px 14px;
+      border-radius: 0 10px 10px 0;
+      margin: 14px 0;
+      font-size: 14px;
+    }
+    .callout.warn { border-left-color: var(--warn); }
+    .callout.danger { border-left-color: var(--danger); }
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 4px; }
+    .tabs button {
+      background: var(--header);
+      color: var(--muted);
+      border: 1px solid var(--hover);
+      border-radius: 999px;
+      padding: 6px 12px;
+      cursor: pointer;
+      font: inherit;
+      font-size: 13px;
+    }
+    .tabs button[aria-selected="true"] { background: var(--out); color: #fff; border-color: var(--green); }
+    .panel[hidden] { display: none; }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
+    .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--active); color: var(--muted); }
+    footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--hover); color: var(--muted); font-size: 13px; }
+    .menu-btn {
+      display: none;
+      position: fixed; top: 12px; left: 12px; z-index: 20;
+      background: var(--header); color: var(--text); border: 0; border-radius: 8px; padding: 8px 12px;
+    }
+    @media (max-width: 860px) {
+      .layout { grid-template-columns: 1fr; }
+      nav { position: fixed; z-index: 15; transform: translateX(-100%); transition: transform .2s; width: 260px; }
+      nav.open { transform: none; }
+      main { padding: 64px 18px 60px; }
+      .two { grid-template-columns: 1fr; }
+      .menu-btn { display: block; }
+    }
+  </style>
+</head>
+<body>
+<button class="menu-btn" id="menuBtn" type="button">Menu</button>
+<div class="layout">
+<nav id="nav">
+  <div class="brand">
+    <img src="screenshots/avatars/icon.svg" alt="" />
+    <div>
+      <strong>WhatsAI</strong>
+      <span>How the system works</span>
+    </div>
+  </div>
+  <div class="group">Map</div>
+  <a class="nav-link" href="#overview">Overview</a>
+  <a class="nav-link" href="#trust">Trust boundary</a>
+  <div class="group">Parts</div>
+  <a class="nav-link" href="#browser">Browser</a>
+  <a class="nav-link" href="#convex">Convex</a>
+  <a class="nav-link" href="#vercel">Vercel functions</a>
+  <a class="nav-link" href="#cloudflare">Cloudflare</a>
+  <div class="group">Flows</div>
+  <a class="nav-link" href="#auth">Auth</a>
+  <a class="nav-link" href="#chat">A chat turn</a>
+  <a class="nav-link" href="#routing">Model routing</a>
+  <a class="nav-link" href="#skills">Skills</a>
+  <a class="nav-link" href="#memory">Memory</a>
+  <a class="nav-link" href="#voice">Live voice</a>
+  <a class="nav-link" href="#other">Reminders · share · media</a>
+  <div class="group">Ops</div>
+  <a class="nav-link" href="#limits">Rate limits</a>
+  <a class="nav-link" href="#cicd">CI / CD</a>
+  <a class="nav-link" href="#constraints">Backend constraints</a>
+</nav>
+<main>
+  <p class="pill">Audited from the code · 21 Aug 2026</p>
+  <h1>How each part of WhatsAI works</h1>
+  <p class="lede">
+    WhatsAI is a WhatsApp-style group chat where every participant is an AI persona.
+    This page is a walkthrough of the <em>running</em> system — not the product pitch.
+    Keys never live in the browser. Convex does not call the LLM. The browser drives a chat turn.
+  </p>
+
+  <div class="cards">
+    <a class="card" href="#browser">
+      <div class="kicker">Client</div>
+      <h3>Browser</h3>
+      <p>React 19 UI. Orchestrates replies, riff, voice overlay. Never holds a vendor key.</p>
+    </a>
+    <a class="card" href="#convex">
+      <div class="kicker">Data</div>
+      <h3>Convex</h3>
+      <p>Source of truth: personas, rooms, messages, auth, memory, reminders, claims.</p>
+    </a>
+    <a class="card" href="#vercel">
+      <div class="kicker">Inference</div>
+      <h3>Vercel <code>api/*</code></h3>
+      <p>11 serverless functions. Every provider key lives here. 60s max.</p>
+    </a>
+    <a class="card" href="#cloudflare">
+      <div class="kicker">Voice + models</div>
+      <h3>Cloudflare</h3>
+      <p>Workers AI for chat/image/STT/TTS. Voice Worker + Durable Object for default calls.</p>
+    </a>
+    <a class="card" href="#voice">
+      <div class="kicker">Optional</div>
+      <h3>Gemini · OpenAI · Grok</h3>
+      <p>Native live voice. Server mints a short-lived session; the browser connects directly.</p>
+    </a>
+  </div>
+
+  <section id="overview">
+    <h2><span class="n">01</span>System topology</h2>
+    <p>Three hops out of the browser: a Convex WebSocket for data, <code>fetch('/api/*')</code> for anything that needs a key, and a separate voice path.</p>
+    <pre class="mermaid">
+flowchart LR
+  subgraph Browser["Browser — React 19 + Vite 6 PWA"]
+    UI["ChatView / Personas / Settings"]
+    VoiceUI["VoiceCallOverlay"]
+  end
+  subgraph Convex["Convex"]
+    Auth["Convex Auth"]
+    Data["personas · rooms · messages"]
+    Sched["scheduled functions"]
+  end
+  subgraph Vercel["Vercel — 11 Hobby functions"]
+    API["api/* holds every provider key"]
+  end
+  subgraph CF["Cloudflare"]
+    Worker["whatsai-voice Worker + DO"]
+    WorkersAI["Workers AI REST"]
+  end
+  subgraph Vendors["Optional vendors"]
+    Groq["Groq / Cerebras / OpenRouter / NVIDIA"]
+    Gemini["Gemini Live"]
+    OAI["OpenAI Realtime"]
+    Grok["xAI Grok Realtime"]
+  end
+  UI -->|WebSocket| Data
+  UI -->|signIn| Auth
+  UI -->|"fetch /api/*"| API
+  API -->|consumeIpLimit| Data
+  API --> WorkersAI
+  API --> Groq
+  VoiceUI -->|"POST /api/voice-session"| API
+  VoiceUI -->|audio WS| Worker
+  VoiceUI -->|WebRTC via API| OAI
+  VoiceUI -->|ephemeral token| Gemini
+  VoiceUI -->|ephemeral secret| Grok
+  Worker --> WorkersAI
+  Sched -->|"POST /api/summarize"| API
+    </pre>
+  </section>
+
+  <section id="trust">
+    <h2><span class="n">02</span>Trust boundary</h2>
+    <p>If a secret is in a <code>VITE_*</code> variable, it ships to every visitor. That is never allowed for provider keys.</p>
+    <div class="two">
+      <div>
+        <h3>May hold secrets</h3>
+        <ul>
+          <li>Vercel <code>process.env</code> on <code>api/*.ts</code></li>
+          <li>Convex env: <code>AUTH_GOOGLE_*</code>, <code>VAPID_*</code>, deploy key</li>
+          <li>GitHub Actions secrets (copied onto Vercel by the sync workflow)</li>
+          <li>Cloudflare Worker <code>AI</code> binding (no token in source)</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Must not hold secrets</h3>
+        <ul>
+          <li>Anything <code>VITE_*</code> except Convex URLs</li>
+          <li>The Vite bundle, localStorage, share links</li>
+          <li><code>services/*</code> client code</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout warn">
+      <code>XAI_API_KEY</code> is Grok <strong>voice</strong>. <code>GROQ_API_KEY</code> is Groq <strong>chat</strong>. They are different vendors.
+      <code>VOICE_AGENT_HOST</code> is a public Worker URL, not a key.
+    </div>
+  </section>
+
+  <section id="browser">
+    <h2><span class="n">03</span>Browser</h2>
+    <p>The SPA is the conductor. It decides who replies, claims the slot, streams tokens, strips control tokens, posts the message, and optionally riffs.</p>
+    <table>
+      <thead><tr><th>File</th><th>What it actually does</th></tr></thead>
+      <tbody>
+        <tr><td><code>index.tsx</code></td><td><code>?share=</code> opens a read-only view; otherwise <code>App</code>.</td></tr>
+        <tr><td><code>App.tsx</code></td><td>Silent anonymous <code>signIn</code>. Wires Convex hooks to the UI.</td></tr>
+        <tr><td><code>ChatView.tsx</code></td><td>Composer, reply loop, riff, voice notes, suggestions, Stop.</td></tr>
+        <tr><td><code>VoiceCallOverlay.tsx</code></td><td>Cloudflare call vs Gemini / OpenAI / Grok.</td></tr>
+        <tr><td><code>hooks/useConvexData.ts</code></td><td>Personas, rooms, settings, claims, memory, usage.</td></tr>
+        <tr><td><code>services/geminiService.ts</code></td><td><strong>Misnomer.</strong> Thin <code>fetch('/api/*')</code> client for chat and images.</td></tr>
+        <tr><td><code>services/*Live.ts</code></td><td>Direct vendor voice sessions after a mint.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="convex">
+    <h2><span class="n">04</span>Convex — source of truth</h2>
+    <p>Reactive queries over WebSocket. File storage for avatars and attachments. Scheduled functions for summaries, link previews, and reminder fire.</p>
+    <table>
+      <thead><tr><th>File</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td><code>schema.ts</code></td><td>Tables below</td></tr>
+        <tr><td><code>auth.ts</code></td><td>Anonymous + Google</td></tr>
+        <tr><td><code>chat.ts</code></td><td>Personas, rooms, messages, claims, rate limits, uploads</td></tr>
+        <tr><td><code>personaMemory.ts</code></td><td>Long-term vault recall / remember</td></tr>
+        <tr><td><code>memory.ts</code></td><td>Rolling chat summary of old messages</td></tr>
+        <tr><td><code>reminders.ts</code> / <code>push.ts</code></td><td>Schedule, fire, Web Push</td></tr>
+        <tr><td><code>links.ts</code> / <code>sharing.ts</code> / <code>usage.ts</code></td><td>OG cards, <code>?share=</code>, token totals</td></tr>
+      </tbody>
+    </table>
+    <h3>Data model</h3>
+    <pre class="mermaid">
+erDiagram
+  users ||--o| userSettings : has
+  users ||--o{ chatRooms : owns
+  users ||--o{ personaMemories : vault
+  users ||--o{ reminders : schedules
+  users ||--o{ usage : spends
+  users ||--o{ pushSubscriptions : devices
+  chatRooms ||--o{ messages : contains
+  chatRooms ||--o{ responseClaims : dedupes
+  chatRooms }o--o{ personas : "personaIds"
+  reminders }o--|| chatRooms : postsInto
+    </pre>
+    <div class="callout danger">
+      <strong>Ownership as implemented, not as a product wish.</strong>
+      Personas have no <code>ownerId</code> — CRUD is global and unauthenticated.
+      Public rooms are writable by any authenticated identity (anonymous counts).
+      Messages store <code>authorId: "user"</code>, not which human spoke.
+    </div>
+  </section>
+
+  <section id="vercel">
+    <h2><span class="n">05</span>Vercel functions — where keys live</h2>
+    <p>Hobby cap is <strong>12</strong> functions; <strong>11</strong> are used. Every file in <code>api/</code> is a function, so helpers cannot live there. Shared code is plain JS in <code>lib/</code> because Vercel ESM cannot import sibling <code>.ts</code> (<code>includeFiles: "lib/**"</code>).</p>
+    <table>
+      <thead><tr><th>Function</th><th>Called by</th><th>Does</th></tr></thead>
+      <tbody>
+        <tr><td><code>persona-response.ts</code></td><td>ChatView</td><td>Chat completion / SSE + tools</td></tr>
+        <tr><td><code>models.ts</code></td><td>Pickers</td><td>Live model registry</td></tr>
+        <tr><td><code>avatar.ts</code> / <code>group-avatar.ts</code> / <code>generate-image.ts</code></td><td>UI</td><td>Flux Schnell (or leftover Gemini)</td></tr>
+        <tr><td><code>transcribe.ts</code></td><td>Voice note</td><td>Whisper turbo</td></tr>
+        <tr><td><code>tts.ts</code></td><td>Speak</td><td>MeloTTS, then browser speech fallback</td></tr>
+        <tr><td><code>suggest.ts</code></td><td>Idle composer</td><td>Next-message suggestions</td></tr>
+        <tr><td><code>summarize.ts</code></td><td>Convex scheduler</td><td>Rolling chat summary</td></tr>
+        <tr><td><code>moderate.ts</code></td><td>ChatView</td><td>OpenAI omni-moderation — <em>fails open</em></td></tr>
+        <tr><td><code>voice-session.ts</code></td><td>Voice overlay</td><td>Rate-limit + mint / return Worker host</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="cloudflare">
+    <h2><span class="n">06</span>Cloudflare</h2>
+    <p>Two different jobs, easy to mix up:</p>
+    <ol>
+      <li><strong>Workers AI REST</strong> — chat, images, STT, TTS from Vercel via <code>CLOUDFLARE_ACCOUNT_ID</code> + token. Default chat model <code>@cf/meta/llama-3.1-8b-instruct-fast</code>.</li>
+      <li><strong>Voice Worker</strong> <code>whatsai-voice</code> — Durable Object <code>PersonaVoiceAgent</code> using Flux STT → Llama → Aura TTS. Live at <code>https://whatsai-voice.yishai-k.workers.dev</code>.</li>
+    </ol>
+    <p>The Worker allowlists <code>whatsai.yishaik.com</code>, the Vercel alias, localhost, and <code>*whatsai*.vercel.app</code>.</p>
+  </section>
+
+  <section id="auth">
+    <h2><span class="n">07</span>Auth</h2>
+    <p>Every visitor gets a silent anonymous session so writes have an identity. Google upgrades that same user — chats follow the account across devices.</p>
+    <pre class="mermaid">
+sequenceDiagram
+  participant B as Browser
+  participant C as Convex Auth
+  participant G as Google
+  B->>C: useConvexAuth()
+  alt not signed in
+    B->>C: signIn("anonymous")
+    C-->>B: users + session
+  end
+  opt user clicks Google
+    B->>C: signIn("google")
+    C->>G: OAuth
+    G-->>C: profile
+    C-->>B: same user upgraded
+  end
+    </pre>
+  </section>
+
+  <section id="chat">
+    <h2><span class="n">08</span>A chat turn</h2>
+    <p>Generation is <strong>client-orchestrated</strong>. Convex only stores the result and serializes who may generate, so two open tabs on a public room do not double-bill.</p>
+    <pre class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant CV as ChatView
+  participant CX as Convex
+  participant API as /api/persona-response
+  participant LLM as Provider
+  participant Mod as /api/moderate
+  U->>CV: send
+  CV->>CX: addMessage(authorId user)
+  CX-->>CV: messages subscription
+  CV->>CV: triggerAIResponses once
+  loop each responder
+    CV->>CX: claimResponseSlot
+    alt lost claim
+      CV-->>CV: skip
+    else won
+      opt memory on
+        CV->>CX: personaMemory.recall
+      end
+      CV->>API: POST stream true
+      API->>LLM: chat.completions SSE
+      LLM-->>CV: deltas
+      CV->>Mod: moderateText
+      CV->>CX: addMessage(persona)
+      opt REMINDER / MEMORY tokens
+        CV->>CX: schedule / remember
+      end
+    end
+  end
+  opt riffRounds 1 to 3
+    Note over CV: every persona again, triggerId riff:msg:round
+  end
+    </pre>
+    <h3>Who replies</h3>
+    <ol>
+      <li>If the text contains <code>@PersonaName</code>, only those personas reply (cap ignored).</li>
+      <li>Else <code>maxResponders</code> slices the room.</li>
+      <li>Else everyone in the room.</li>
+    </ol>
+    <p><strong>Model fallback:</strong> <code>persona.model</code> → <code>chatRoom.model</code> → <code>userSettings.defaultModel</code>.</p>
+    <p><strong>Claims</strong> last 90 seconds. A dead tab’s claim can be stolen so the room is not stuck.</p>
+    <p><strong>Riff</strong> is extra rounds among personas. Persona-authored messages do not re-trigger the loop — only <code>authorId === 'user'</code> does. Stop / a new send aborts the in-flight controller.</p>
+    <p>After 200 messages, every 25th message schedules a rolling summary via <code>/api/summarize</code>. The client still only loads the newest 200.</p>
+  </section>
+
+  <section id="routing">
+    <h2><span class="n">09</span>Model routing</h2>
+    <p>The UI stores one string. The prefix picks the vendor. <code>/api/persona-response</code> strips the prefix before the HTTP call.</p>
+    <pre class="mermaid">
+flowchart TD
+  id["model id"] --> detect["lib/providers.js"]
+  detect -->|"@cf/"| CF["cloudflare"]
+  detect -->|"groq/"| Groq["groq"]
+  detect -->|"cerebras/"| Cerebras["cerebras"]
+  detect -->|"openrouter/"| OpenR["openrouter"]
+  detect -->|"nvidia/"| NV["nvidia"]
+  detect -->|"gpt- / o1"| OAI["openai"]
+  detect -->|else| Gem["gemini"]
+  Gem -->|key missing and CF ready| Remap["remap to Llama 8B Fast"]
+  OAI -->|key missing and CF ready| Remap
+    </pre>
+    <p>Leftover Gemini/GPT ids remap onto Cloudflare when those keys are absent. Groq / Cerebras / OpenRouter / NVIDIA <strong>never</strong> remap — a missing key is a hard error.</p>
+  </section>
+
+  <section id="skills">
+    <h2><span class="n">10</span>Skills and in-band tokens</h2>
+    <table>
+      <thead><tr><th>Skill</th><th>How</th><th>Who</th></tr></thead>
+      <tbody>
+        <tr><td><code>web_search</code></td><td>Native Google Search grounding</td><td><strong>Gemini only</strong></td></tr>
+        <tr><td><code>fetch_url</code></td><td>Server fetch, HTML stripped, SSRF block</td><td>All</td></tr>
+        <tr><td><code>calculate</code></td><td>Arithmetic</td><td>All</td></tr>
+        <tr><td><code>datetime</code></td><td>UTC now + user timezone</td><td>All</td></tr>
+      </tbody>
+    </table>
+    <p>Function-tool turns are buffered (up to 3 rounds), then emitted as one SSE delta. Tokens that work on every provider, parsed in the browser:</p>
+    <ul>
+      <li><code>[[REMINDER]]{"text","when","repeat"}</code> → <code>reminders.scheduleReminder</code></li>
+      <li><code>[[MEMORY]]{"fact","topic"}</code> → <code>personaMemory.remember</code> (only if memory is on)</li>
+    </ul>
+  </section>
+
+  <section id="memory">
+    <h2><span class="n">11</span>Long-term memory</h2>
+    <p>Off by default so existing personas do not suddenly “know” you. Napkin-style: recall a budgeted block <em>before</em> the call, distill <code>[[MEMORY]]</code> after.</p>
+    <pre class="mermaid">
+flowchart TD
+  subgraph Recall["Before the LLM call"]
+    Q["last user text"] --> R["personaMemory.recall"]
+    R --> L1["overview titles"]
+    L1 --> L2["FTS search"]
+    L2 --> L3["read until ~500 tokens"]
+    L3 --> Block["block in system prompt"]
+  end
+  subgraph Distill["After the reply"]
+    Out["model text"] --> Parse["extract MEMORY JSON"]
+    Parse --> Remember["personaMemory.remember"]
+    Remember --> Hygiene["dedup · 50 facts/note · 64 notes"]
+  end
+    </pre>
+    <p>Default scope is per Convex <strong>user</strong> (shared across their personas). Rolling <em>chat</em> summary is a different system — it compresses old messages, not durable facts about the user.</p>
+  </section>
+
+  <section id="voice">
+    <h2><span class="n">12</span>Live voice — four different machines</h2>
+    <p>Settings store <code>userSettings.voiceProvider</code>. GET <code>/api/voice-session</code> lists what is configured. POST is rate-limited and never returns a long-lived vendor key. Switching provider mid-call reconnects.</p>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" aria-selected="true" data-tab="cf">Cloudflare</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="gem">Gemini</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="oai">OpenAI</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="grok">Grok</button>
+    </div>
+
+    <div class="panel" data-panel="cf">
+      <h3>Cloudflare — pipeline, not speech-to-speech</h3>
+      <p>STT → short Llama turn → TTS. It will never feel like native duplex. Interrupt is client-side (<code>silenceDurationMs: 280</code>).</p>
+      <pre class="mermaid">
+sequenceDiagram
+  participant Mic as Microphone
+  participant Overlay as CloudflareCall
+  participant API as /api/voice-session
+  participant DO as PersonaVoiceAgent
+  participant Flux as Flux STT
+  participant Llama as Llama 8B Fast
+  participant Aura as Aura TTS
+  Overlay->>API: POST provider=cloudflare
+  API-->>Overlay: host + agent
+  Overlay->>DO: WebSocket + set_persona
+  Mic->>DO: audio
+  DO->>Flux: transcribe
+  Flux-->>DO: transcript
+  DO->>Llama: onTurn max_tokens 90
+  Llama-->>DO: tokens
+  DO->>Aura: speak
+  Aura-->>Overlay: audio
+      </pre>
+    </div>
+
+    <div class="panel" data-panel="gem" hidden>
+      <h3>Gemini Live — native audio</h3>
+      <p>Ephemeral token, 1 use, ~30 min. Persona is baked into the token, so switching faces reconnects. PCM 16 kHz in / 24 kHz out.</p>
+      <pre class="mermaid mermaid-lazy">
+sequenceDiagram
+  participant Overlay as DirectLiveCall
+  participant API as /api/voice-session
+  participant G as Google
+  participant Live as Gemini Live WS
+  Overlay->>API: POST gemini + system + voice
+  API->>G: authTokens.create v1beta
+  G-->>API: ephemeral token
+  API-->>Overlay: token + model
+  Overlay->>Live: connect PCM
+      </pre>
+    </div>
+
+    <div class="panel" data-panel="oai" hidden>
+      <h3>OpenAI Realtime — WebRTC, SDP proxied</h3>
+      <p>The browser cannot POST SDP to OpenAI (CORS). The function holds <code>OPENAI_API_KEY</code>, exchanges SDP, returns the answer. Model <code>gpt-realtime-2.1</code>, semantic VAD.</p>
+      <pre class="mermaid mermaid-lazy">
+sequenceDiagram
+  participant Overlay as OpenAiLiveSession
+  participant API as /api/voice-session
+  participant O as api.openai.com
+  Overlay->>Overlay: getUserMedia + PeerConnection
+  Overlay->>Overlay: audio transceiver + wait ICE
+  Overlay->>API: POST openai + SDP offer
+  API->>O: POST /v1/realtime/calls
+  O-->>API: answer SDP
+  API-->>Overlay: sdp
+  Overlay->>O: WebRTC audio
+      </pre>
+    </div>
+
+    <div class="panel" data-panel="grok" hidden>
+      <h3>Grok — native speech-to-speech WebSocket</h3>
+      <p>Uses <code>XAI_API_KEY</code>, not Groq. Binary PCM 24 kHz, <code>reasoning.effort none</code>, server VAD 0.4.</p>
+      <pre class="mermaid mermaid-lazy">
+sequenceDiagram
+  participant Overlay as GrokLiveSession
+  participant API as /api/voice-session
+  participant X as api.x.ai
+  Overlay->>API: POST grok
+  API->>X: client_secrets 300s
+  X-->>API: clientSecret
+  API-->>Overlay: secret + wss URL
+  Overlay->>X: WS + binary PCM
+      </pre>
+    </div>
+  </section>
+
+  <section id="other">
+    <h2><span class="n">13</span>Reminders, share links, media</h2>
+    <pre class="mermaid">
+flowchart LR
+  subgraph Reminders
+    Token["REMINDER token"] --> Sched["scheduleReminder"]
+    Sched --> Fire["scheduler fire"]
+    Fire --> Msg["message as persona"]
+    Fire --> Push["Web Push"]
+  end
+  subgraph Share
+    Owner["createShareLink"] --> Id["shareId"]
+    Id --> URL["/?share=token"]
+    URL --> RO["read-only, no composer"]
+  end
+  subgraph Media
+    Mic["voice note"] --> STT["/api/transcribe"]
+    Speak["speaker"] --> TTS["/api/tts"]
+    Img["composer / avatar"] --> Flux["/api/avatar · generate-image"]
+    URL2["URL in text"] --> OG["link preview"]
+  end
+    </pre>
+    <p>Push no-ops without <code>VAPID_*</code> on Convex; the in-chat reminder still posts.</p>
+  </section>
+
+  <section id="limits">
+    <h2><span class="n">14</span>Rate limits</h2>
+    <p>Fixed windows in the <code>rateLimits</code> table. The IP limiter is a <strong>public</strong> mutation so Vercel functions can call it without a user JWT. If Convex is down, functions fail <em>open</em>.</p>
+    <table>
+      <thead><tr><th>Key</th><th>Limit / min</th><th>Where</th></tr></thead>
+      <tbody>
+        <tr><td><code>{user}:sendMessage</code></td><td>20</td><td><code>addMessage</code></td></tr>
+        <tr><td><code>{user}:aiReply</code></td><td>100</td><td><code>claimResponseSlot</code> (quiet skip)</td></tr>
+        <tr><td><code>ip:ai</code></td><td>80</td><td><code>/api/persona-response</code></td></tr>
+        <tr><td><code>ip:voice</code></td><td>20</td><td><code>/api/voice-session</code></td></tr>
+        <tr><td><code>ip:image</code></td><td>20</td><td>avatars / generate-image</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="cicd">
+    <h2><span class="n">15</span>CI / CD</h2>
+    <p>Vercel git auto-deploy is <strong>off</strong>. GitHub Actions is the deployer. Node <strong>22</strong>.</p>
+    <pre class="mermaid">
+flowchart TD
+  PR["PR to main"] --> CI["ci.yml: npm ci, tsc, vite build"]
+  PR -->|"label preview"| Prev["Vercel preview URL"]
+  Main["push main non-docs"] --> CD["cd.yml"]
+  CD --> T["typecheck"]
+  T --> W["wrangler deploy"]
+  W --> CX["convex deploy"]
+  CX --> V["vercel production"]
+  Manual["Sync Cloudflare env"] --> Env["upsert secrets onto Vercel"]
+    </pre>
+    <p>Local: <code>npx convex dev</code> + <code>npm run dev:vercel</code> + <code>npm run dev:voice</code>. Plain <code>npm run dev</code> is UI only — <code>/api/*</code> 404s.</p>
+  </section>
+
+  <section id="constraints">
+    <h2><span class="n">16</span>Facts that constrain backend work</h2>
+    <ol>
+      <li><strong>Personas are a global mutable table.</strong> No owner, no auth on CRUD.</li>
+      <li><strong>The LLM loop lives in the browser.</strong> Moving it server-side means replacing <code>ChatView.triggerAIResponses</code>, not adding a second path.</li>
+      <li><strong>11 of 12 Hobby functions are used.</strong> New <code>api/*.ts</code> files need a slot. Helpers go in <code>lib/*.js</code>.</li>
+      <li><code>ipLimitOk</code> is copy-pasted into every function (no sibling <code>.ts</code> imports).</li>
+      <li><code>services/geminiService.ts</code> is the chat/image HTTP client, leftover name.</li>
+      <li><code>web_search</code> is Gemini-only. Cloudflare personas should use Read URLs.</li>
+      <li>Cloudflare voice is turn-based STT→LLM→TTS, not native live conversation.</li>
+      <li>Public rooms + anonymous auth: any visitor can post and trigger paid inference (rate limits, not ACL).</li>
+    </ol>
+  </section>
+
+  <footer>
+    Source of truth in markdown: <a href="ARCHITECTURE.md">docs/ARCHITECTURE.md</a>
+    · Live app: <a href="https://whatsai.yishaik.com">whatsai.yishaik.com</a>
+    · Open this file in a browser (needs network once, for Mermaid).
+  </footer>
+</main>
+</div>
+<script>
+  const nav = document.getElementById("nav");
+  document.getElementById("menuBtn").onclick = () => nav.classList.toggle("open");
+  nav.querySelectorAll("a").forEach((a) => a.addEventListener("click", () => nav.classList.remove("open")));
+
+  const links = [...document.querySelectorAll("nav a.nav-link")];
+  const sections = links.map((a) => document.querySelector(a.getAttribute("href"))).filter(Boolean);
+  const io = new IntersectionObserver((entries) => {
+    const vis = entries.filter((e) => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+    if (!vis) return;
+    links.forEach((l) => l.classList.toggle("active", l.getAttribute("href") === "#" + vis.target.id));
+  }, { rootMargin: "-20% 0px -70% 0px", threshold: [0, 0.2, 1] });
+  sections.forEach((s) => io.observe(s));
+
+  document.querySelectorAll(".tabs").forEach((tablist) => {
+    const buttons = [...tablist.querySelectorAll("[data-tab]")];
+    const parent = tablist.parentElement;
+    const show = async (id) => {
+      buttons.forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === id)));
+      parent.querySelectorAll("[data-panel]").forEach((p) => { p.hidden = p.dataset.panel !== id; });
+      const panel = parent.querySelector(`[data-panel="${id}"]`);
+      const lazy = panel && panel.querySelectorAll(".mermaid-lazy");
+      if (lazy && lazy.length && window.mermaid) {
+        await window.mermaid.run({ nodes: lazy });
+        lazy.forEach((n) => n.classList.remove("mermaid-lazy"));
+      }
+    };
+    buttons.forEach((b) => b.addEventListener("click", () => show(b.dataset.tab)));
+  });
+</script>
+</body>
+</html>

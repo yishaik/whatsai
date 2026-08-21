@@ -2,6 +2,8 @@
 
 This is the source of truth for **how the running system works**. Product copy lives in [README.md](../README.md). How to run and ship lives in [DEVELOPER_GUIDE.md](../DEVELOPER_GUIDE.md) and [DEPLOYMENT.md](../DEPLOYMENT.md). Backend work should start from the facts here, not from filenames (`services/geminiService.ts` is not Gemini).
 
+Walk through it in a browser: open **[how-it-works.html](how-it-works.html)** (sidebar + graphs).
+
 Audited against the code on 2026-08-21.
 
 ---
@@ -570,6 +572,7 @@ hooks/               Convex + models (no localStorage)
 memory/              storage-agnostic recall/distill/hygiene
 services/            browser clients (geminiService = /api wrapper)
 docs/ARCHITECTURE.md this file
+docs/how-it-works.html interactive HTML walkthrough of these graphs
 tests/               memory, models, voice, Convex personaMemory
 .github/workflows/   ci, cd, pr-preview, sync-cloudflare-env
 ```
