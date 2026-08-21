@@ -86,7 +86,7 @@ See [env.example](env.example) and [DEPLOYMENT.md](DEPLOYMENT.md).
 - Vercel treats every `api/*.ts` as a function (Hobby cap 12). Do not put helpers in `api/`.
 - Cross-directory `.ts` imports from `api/` fail at runtime (`ERR_MODULE_NOT_FOUND`). Use `lib/*.js` + `vercel.json` `includeFiles: "lib/**"`.
 - Web search (Google grounding) is Gemini-only. Cloudflare/Groq/etc. should use the Read URLs skill.
-- Live voice is Cloudflare `@cloudflare/voice` (Worker + Durable Object). Do not host the call on Vercel.
+- Live voice providers: Cloudflare Worker (`@cloudflare/voice`), Gemini Live, OpenAI Realtime (WebRTC), Grok (`wss://api.x.ai/v1/realtime`). `/api/voice-session` mints the session; keys never reach the browser.
 - DeepSeek V4 Pro/Flash on Cloudflare need Workers Paid; Free-plan 403s map to an upgrade message.
 
 ## Troubleshooting
@@ -95,4 +95,4 @@ See [env.example](env.example) and [DEPLOYMENT.md](DEPLOYMENT.md).
 - **Missing Cloudflare helper** — confirm `lib/cloudflareAi.js` and `lib/providers.js` are deployed (`includeFiles`).
 - **Provider 401/missing key** — set the matching env var on Vercel, sync secrets, redeploy.
 - **`npm run preview`** — static `dist/` only; no functions.
-- **Live voice fails** — run `npm run dev:voice` and set `VOICE_AGENT_HOST=http://localhost:8787`. Production needs `npx wrangler deploy` plus `VOICE_AGENT_HOST` on Vercel.
+- **Live voice fails** — Settings → pick a provider whose key is on Vercel. Cloudflare needs `VOICE_AGENT_HOST`. Gemini `GEMINI_API_KEY`. OpenAI `OPENAI_API_KEY`. Grok `XAI_API_KEY`. After adding a GitHub secret, run env sync then production deploy.

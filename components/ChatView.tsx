@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChatRoom, Persona, Message, Attachment, ReminderInput, UsageInfo } from '../types';
+import { VoiceProvider } from '../services/voice';
 import type { MemoryFact } from '../memory/types';
 import { USER_ID } from '../constants';
 import MessageBubble from './MessageBubble';
@@ -35,6 +36,8 @@ interface ChatViewProps {
   personasMap: { [id: string]: Persona };
   authReady: boolean;
   defaultModel: string;
+  voiceProvider: VoiceProvider;
+  onVoiceProviderChange: (provider: VoiceProvider) => void;
   onSendMessage: (chatId: string, message: Omit<Message, 'id' | 'timestamp'>) => void | Promise<void>;
   onUploadFile: (file: File) => Promise<Attachment>;
   onGenerateImage: (prompt: string) => Promise<Attachment>;
@@ -101,7 +104,7 @@ const StreamingBubble: React.FC<{ persona: Persona; text: string }> = ({ persona
     </div>
 );
 
-const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, onSendMessage, onUploadFile, onGenerateImage, onScheduleReminder, onRecallMemory, onRememberMemory, onRecordUsage, onDeleteMessage, onClaimResponse, onOpenReminders, onEditChat, onDeleteChat }) => {
+const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, defaultModel, voiceProvider, onVoiceProviderChange, onSendMessage, onUploadFile, onGenerateImage, onScheduleReminder, onRecallMemory, onRememberMemory, onRecordUsage, onDeleteMessage, onClaimResponse, onOpenReminders, onEditChat, onDeleteChat }) => {
   const [inputText, setInputText] = useState('');
   const [typingPersonas, setTypingPersonas] = useState<Set<string>>(new Set());
   const [streamingText, setStreamingText] = useState<Record<string, string>>({});
@@ -1022,6 +1025,8 @@ const ChatView: React.FC<ChatViewProps> = ({ chatRoom, personasMap, authReady, d
             personas={chatPersonas}
             initialPersona={callPersona}
             chatTopic={chatRoom.topic}
+            voiceProvider={voiceProvider}
+            onVoiceProviderChange={onVoiceProviderChange}
             onClose={() => setCallPersona(null)}
           />
         </Suspense>

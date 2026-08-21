@@ -83,7 +83,7 @@ Create a room, pick who is in it, set a topic. Then:
 
 ### 3. Voice. Not a gimmick.
 
-Tap the phone icon. You're on a live call with a persona, in character, over Cloudflare Voice (`@cloudflare/voice`: Flux STT, Aura TTS, Llama on a Worker). Mute, hang up, or tap another face in the room to switch who is on the line — the call stays up and the speaker changes.
+Tap the phone icon. You're on a live call with a persona, in character. Pick **Cloudflare**, **Gemini**, **OpenAI**, or **Grok** in Settings (or mid-call). Mute, hang up, or tap another face in the room to switch who is on the line. Keys stay on the server; the browser only gets a short-lived session.
 
 Messages can also be **spoken back** (Cloudflare MeloTTS, with browser speech as fallback) or **dictated** (record a voice note → Whisper turbo into the composer).
 
@@ -205,7 +205,7 @@ Anonymous auth fires on first load so the app is usable with zero clicks. Sign i
 | UI | React 19, TypeScript, Tailwind, Vite 6 | Fast, typed, the WhatsApp palette is first-class in `tailwind.config.js` |
 | Data | [Convex](https://convex.dev) + Convex Auth | Reactive queries, file storage, scheduled functions, search indexes |
 | Models | Cloudflare Workers AI + OpenAI-compatible extras | Llama/Gemma/GPT-OSS/Qwen/DeepSeek on CF; Groq, Cerebras, OpenRouter, NVIDIA optional |
-| Live voice | Cloudflare Worker + `@cloudflare/voice` | Flux STT, Aura TTS, Llama 3.1 8B Fast on a Durable Object |
+| Live voice | Cloudflare, Gemini, OpenAI, or Grok | Pick in Settings. Cloudflare Worker is the default; others use ephemeral tokens |
 | AI routes | Vercel Functions in `api/` | Secrets stay server-side; streaming persona replies |
 | Client extras | MiniSearch, TanStack Virtual, Web Push, vite-plugin-pwa | Instant search, long-thread scrolling, reminders that land, installable app |
 

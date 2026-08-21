@@ -154,7 +154,9 @@ export const getMySettings = query({
       .query("userSettings")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .first();
-    return settings ? { defaultModel: settings.defaultModel } : null;
+    return settings
+      ? { defaultModel: settings.defaultModel, voiceProvider: settings.voiceProvider }
+      : null;
   },
 });
 
@@ -172,6 +174,27 @@ export const setDefaultModel = mutation({
       await ctx.db.patch(existing._id, { defaultModel: args.model });
     } else {
       await ctx.db.insert("userSettings", { userId, defaultModel: args.model });
+    }
+  },
+});
+
+export const setVoiceProvider = mutation({
+  args: { provider: v.string() },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+    const existing = await ctx.db
+      .query("userSettings")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first();
+    if (existing) {
+      await ctx.db.patch(existing._id, { voiceProvider: args.provider });
+    } else {
+      await ctx.db.insert("userSettings", {
+        userId,
+        defaultModel: "@cf/meta/llama-3.1-8b-instruct-fast",
+        voiceProvider: args.provider,
+      });
     }
   },
 });

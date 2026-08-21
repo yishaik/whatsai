@@ -5,12 +5,15 @@ import { UsageRow } from '../types';
 import { estimateCostUsd, formatUsd } from '../services/pricing';
 import { findModelLabel } from '../services/models';
 import ModelPicker from './ModelPicker';
+import { VoiceProvider, VOICE_PROVIDER_META } from '../services/voice';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultModel: string;
   onSetDefaultModel: (model: string) => void;
+  voiceProvider: VoiceProvider;
+  onSetVoiceProvider: (provider: VoiceProvider) => void;
   usage: UsageRow[];
 }
 
@@ -20,7 +23,7 @@ const fmtTokens = (n: number): string => {
   return String(n);
 };
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, defaultModel, onSetDefaultModel, usage }) => {
+const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, defaultModel, onSetDefaultModel, voiceProvider, onSetVoiceProvider, usage }) => {
   const models = useModels();
 
   useEffect(() => {
@@ -57,6 +60,22 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, defaultM
             <p className="text-xs text-text-secondary mt-2">
               Cloudflare is live. Groq, Cerebras, OpenRouter, and NVIDIA appear in the list; they need their API keys on the server.
             </p>
+          </div>
+
+          <div>
+            <h3 className="text-base font-semibold text-text-primary mb-1">Live voice provider</h3>
+            <p className="text-xs text-text-secondary mb-3">
+              Used when you tap the phone icon. You can also switch mid-call. Keys stay on the server.
+            </p>
+            <select
+              value={voiceProvider}
+              onChange={(e) => onSetVoiceProvider(e.target.value as VoiceProvider)}
+              className="w-full bg-item-active-bg text-text-primary rounded px-3 py-2"
+            >
+              {VOICE_PROVIDER_META.map((p) => (
+                <option key={p.id} value={p.id}>{p.label} — {p.hint}</option>
+              ))}
+            </select>
           </div>
 
           <div>

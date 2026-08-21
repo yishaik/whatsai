@@ -37,6 +37,8 @@ const App: React.FC = () => {
     uploadFile,
     defaultModel,
     setDefaultModel,
+    voiceProvider,
+    setVoiceProvider,
     reminders,
     scheduleReminder,
     cancelReminder,
@@ -225,6 +227,8 @@ const App: React.FC = () => {
           personasMap={personasMap}
           authReady={isAuthenticated}
           defaultModel={defaultModel}
+          voiceProvider={voiceProvider}
+          onVoiceProviderChange={setVoiceProvider}
           onSendMessage={addMessageToChat}
           onUploadFile={uploadFile}
           onGenerateImage={onGenerateImage}
@@ -256,6 +260,8 @@ const App: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         defaultModel={defaultModel}
         onSetDefaultModel={setDefaultModel}
+        voiceProvider={voiceProvider}
+        onSetVoiceProvider={setVoiceProvider}
         usage={usage}
       />
 
