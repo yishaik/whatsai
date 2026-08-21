@@ -14,7 +14,7 @@
   <a href="https://github.com/yishaik/whatsai/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/yishaik/whatsai/ci.yml?branch=main&style=flat-square" alt="CI" /></a>
   <img src="https://img.shields.io/badge/React_19-Vite-53BDEB?style=flat-square" alt="React + Vite" />
   <img src="https://img.shields.io/badge/Convex-realtime-00A884?style=flat-square" alt="Convex" />
-  <img src="https://img.shields.io/badge/Gemini_+_GPT-multi--model-8696A0?style=flat-square" alt="Multi-model" />
+  <img src="https://img.shields.io/badge/Cloudflare_Workers_AI-multi--model-F38020?style=flat-square" alt="Cloudflare Workers AI" />
 </p>
 
 <p align="center">
@@ -43,7 +43,7 @@ Most "AI chat" products are a prompt plus a text field. WhatsAI is a **social ru
 | You as the router | Personas riff with each other for N rounds after you send a message |
 | A forgotten context window | Opt-in long-term memory that survives chats — distilled, searched, recalled |
 | Typed replies only | Live voice calls, TTS, transcribed voice notes, generated images |
-| A secret in the browser | Gemini + OpenAI keys stay on the server. The client never sees them |
+| A secret in the browser | Provider keys stay on the server. The client never sees them |
 
 It looks like WhatsApp on purpose. The interface is the product: if it feels like a chat you already live in, you will actually use it.
 
@@ -60,8 +60,8 @@ It looks like WhatsApp on purpose. The interface is the product: if it feels lik
 A persona is a character with a face, a system prompt, a model, and a toolkit.
 
 - **Templates** to start from: Research Analyst, Socratic Tutor, Startup Strategist, Travel Planner, Code Reviewer, Zen Coach, Witty Comedian, Devil's Advocate
-- **AI-generated avatars** (Imagen) — or regenerate until the face matches the mind
-- **Per-persona models** — Gemini 3.1 Flash Lite, GPT-4o, GPT-4.1, or whatever the server currently exposes. The model list is live, not hardcoded
+- **AI-generated avatars** (Cloudflare Flux Schnell) — or regenerate until the face matches the mind
+- **Provider + model pickers** — Cloudflare Workers AI by default (Llama, Gemma, GPT-OSS, Qwen, DeepSeek, …). Optional Groq, Cerebras, OpenRouter, and NVIDIA when those keys are set. A persona can override the chat default.
 - **Skills** you toggle like permissions: web search, read URLs, calculator, date & time
 - **Long-term memory**, off by default, so existing characters don't suddenly "know" you
 - Import / export as JSON so a roster travels with you
@@ -83,9 +83,9 @@ Create a room, pick who is in it, set a topic. Then:
 
 ### 3. Voice. Not a gimmick.
 
-Tap the phone icon. You're on a live call with a persona, in character, using Gemini Live. Mute, hang up, or tap another face in the room to switch who is on the line — each reconnects with its own voice.
+Tap the phone icon. You're on a live call with a persona, in character, using Gemini Live (the one path that still needs a Gemini key). Mute, hang up, or tap another face in the room to switch who is on the line — each reconnects with its own voice.
 
-Messages can also be **spoken back** (cloud TTS with a stable per-persona voice) or **dictated** (record a voice note → OpenAI Whisper into the composer).
+Messages can also be **spoken back** (Cloudflare MeloTTS, with browser speech as fallback) or **dictated** (record a voice note → Whisper turbo into the composer).
 
 ![Live voice call with Jules, with Mira, Elena, and Kai one tap away](docs/screenshots/voice.png)
 
@@ -131,15 +131,15 @@ Because a toy messenger is still a toy.
 │  reminders · push · usage │     │  /generate-image  /tts      │
 │  share links · rate limit │     │  /transcribe  /live-token   │
 └───────────────────────────┘     │  /moderate  /summarize      │
-                                  │  Gemini + OpenAI keys here  │
+                                  │  Keys stay here, never UI   │
                                   └─────────────────────────────┘
 ```
 
-**The browser never holds an API key.** `services/geminiService.ts` is a thin client over `/api/*`. Those functions own `GEMINI_API_KEY` and `OPENAI_API_KEY`.
+**The browser never holds an API key.** `services/geminiService.ts` is a thin client over `/api/*`. Chat, images, STT, and TTS go through **Cloudflare Workers AI** when `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` are set. Optional OpenAI-compatible keys unlock Groq, Cerebras, OpenRouter, and NVIDIA. Gemini is only required for **live voice**.
 
 **Convex is the source of truth.** Rooms, messages, avatars (file storage), reminders, push subscriptions, and the memory vault are reactive. Multiple open clients on the same public room won't double-generate: a `responseClaims` table lets only one tab win the slot for a given persona × trigger message.
 
-**Models are a live registry.** `/api/models` lists whatever the configured keys can actually run, filtered to chat models, and the Settings picker updates itself.
+**Models are a live registry.** Settings, chats, and personas use two dropdowns — **provider**, then **model**. `/api/models` lists Cloudflare plus any other provider whose key is configured. OpenRouter's free `:free` catalog is fetched live.
 
 ---
 
@@ -153,14 +153,21 @@ cd whatsai
 npm install
 ```
 
-Create `.env.local`:
+Copy `env.example` to `.env.local`:
 
 ```env
-# Required for persona replies, avatars, and (Gemini) live voice
-GEMINI_API_KEY=your_gemini_key
+# Chat, images, STT, TTS (Workers AI Read token)
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_API_TOKEN=
 
-# Optional — unlocks GPT models, cloud TTS, and transcription
-OPENAI_API_KEY=your_openai_key
+# Optional extra providers (free-tier keys are enough)
+GROQ_API_KEY=
+CEREBRAS_API_KEY=
+OPENROUTER_API_KEY=
+NVIDIA_API_KEY=
+
+# Optional — live voice calls only
+GEMINI_API_KEY=
 
 # Convex (from `npx convex dev`)
 CONVEX_DEPLOYMENT=dev:your-deployment
@@ -174,7 +181,7 @@ npx convex dev          # backend + codegen
 npm run dev:vercel      # frontend + /api/* functions together
 ```
 
-`npm run dev` is the Vite UI only — persona replies and avatars will 404 without `dev:vercel`.
+`npm run dev` is the Vite UI only — persona replies and avatars will 404 without `dev:vercel`. Before pushing to `main`, run `npm run verify` (typecheck + tests + build).
 
 | Script | What it does |
 | --- | --- |
@@ -183,6 +190,7 @@ npm run dev:vercel      # frontend + /api/* functions together
 | `npm run build` | Production frontend → `dist/` |
 | `npm test` | Vitest (memory engine, Convex, UI units) |
 | `npm run typecheck` | `tsc --noEmit` |
+| `npm run verify` | typecheck + test + build (run this before `main`) |
 
 Anonymous auth fires on first load so the app is usable with zero clicks. Sign in with Google when you want chats to follow you across devices and private rooms to stay private.
 
@@ -194,7 +202,7 @@ Anonymous auth fires on first load so the app is usable with zero clicks. Sign i
 | --- | --- | --- |
 | UI | React 19, TypeScript, Tailwind, Vite 6 | Fast, typed, the WhatsApp palette is first-class in `tailwind.config.js` |
 | Data | [Convex](https://convex.dev) + Convex Auth | Reactive queries, file storage, scheduled functions, search indexes |
-| Models | `@google/genai`, `openai` | Gemini for search/live/imagen; GPT where you pick it |
+| Models | Cloudflare Workers AI + OpenAI-compatible extras | Llama/Gemma/GPT-OSS/Qwen/DeepSeek on CF; Groq, Cerebras, OpenRouter, NVIDIA optional; Gemini Live for voice |
 | AI routes | Vercel Functions in `api/` | Secrets stay server-side; streaming persona replies |
 | Client extras | MiniSearch, TanStack Virtual, Web Push, vite-plugin-pwa | Instant search, long-thread scrolling, reminders that land, installable app |
 
@@ -206,15 +214,15 @@ Deep-dive: [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) · ship it: [DEPLOYMENT.md](
 
 Production is **Vercel** (static Vite build + `api/*`) talking to a **Convex** deployment.
 
-On push to `main`: type-check → `convex deploy` → Vercel production. PRs get a preview URL commented on the PR.
+On push to `main`: type-check → `convex deploy` → Vercel production. PRs are verified by CI; a Vercel preview deploys only if the PR has the `preview` label. Manual prod: Actions → Deploy Production → Run workflow.
 
 Required:
 
 | Where | Variable |
 | --- | --- |
-| Vercel | `GEMINI_API_KEY`, `VITE_CONVEX_URL` |
-| Vercel (optional) | `OPENAI_API_KEY`, `VITE_CONVEX_SITE_URL` |
-| GitHub Actions | `VERCEL_TOKEN`, `CONVEX_DEPLOY_KEY` |
+| Vercel | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `VITE_CONVEX_URL` |
+| Vercel (optional) | `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`, `NVIDIA_API_KEY`, `GEMINI_API_KEY` (live voice) |
+| GitHub Actions | `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `CONVEX_DEPLOY_KEY`, plus the same AI keys to sync onto Vercel |
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the exact pipeline and the fallback `vercel deploy` commands.
 
@@ -228,8 +236,9 @@ Live:
 ## Project map
 
 ```text
-api/                 Gemini + OpenAI serverless routes
-components/          ChatList, ChatView, PersonaManager, voice, search, settings
+api/                 Serverless AI routes (chat, image, STT, TTS, models)
+lib/                 Cloudflare + OpenAI-compatible provider helpers
+components/          ChatList, ChatView, PersonaManager, ModelPicker, voice
 convex/              Schema, auth, chat, memory, reminders, push, sharing
 data/                Default personas
 hooks/               Convex data, live models, messages
@@ -252,7 +261,7 @@ MIT. See [LICENSE](LICENSE).
 
 ## Status
 
-WhatsAI is a working product, not a sketch. Streaming group chat, multi-model routing, live voice, memory, reminders, share links, and a PWA are in production. The old README described a localStorage toy. That app is gone — this one has a backend, an identity, and a room full of people who aren't you.
+WhatsAI is a working product, not a sketch. Streaming group chat, Cloudflare (and optional Groq/Cerebras/OpenRouter/NVIDIA) routing, live voice, memory, reminders, share links, and a PWA are in production. The old README described a localStorage toy. That app is gone — this one has a backend, an identity, and a room full of people who aren't you.
 
 <p align="center">
   <a href="https://whatsai.yishaik.com"><strong>Start a chat →</strong></a>

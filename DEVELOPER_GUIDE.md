@@ -1,193 +1,94 @@
-# AI Persona Chat — Developer Guide
+# WhatsAI — Developer Guide
 
 ## Overview
 
-AI Persona Chat is a Vite + React + TypeScript application for running multi-persona conversations in a WhatsApp-style interface.
+WhatsAI is a Vite + React + TypeScript app: a WhatsApp-style **multi-persona group chat**. Personas, rooms, messages, auth, and memory live in **Convex**. AI inference runs in **Vercel serverless functions** so provider keys never reach the browser.
 
-The app stores personas, chat rooms, and message history in `localStorage`. AI responses and avatar generation are handled server-side through Vercel Functions so the Gemini API key never needs to be shipped to the browser.
-
-## Current Architecture
+## Architecture
 
 ```text
-Browser UI (React)
-  ├── App state and localStorage
-  ├── Chat UI and persona management
-  └── services/geminiService.ts
+Browser UI (React 19)
+  ├── Convex subscriptions (rooms, messages, personas)
+  ├── Provider + model pickers (Settings, chat, persona)
+  └── services/geminiService.ts  →  fetch('/api/*')
            │
-           └── fetch('/api/*')
-                  │
-                  ├── /api/persona-response
-                  ├── /api/avatar
-                  └── /api/group-avatar
-                           │
-                           └── Google Gemini / Imagen
+           ├── /api/persona-response   chat (stream)
+           ├── /api/models             live model list
+           ├── /api/avatar, /group-avatar, /generate-image
+           ├── /api/transcribe, /tts, /suggest, /summarize
+           └── /api/live-token         Gemini Live only
+                    │
+                    ├── Cloudflare Workers AI (default)
+                    ├── Groq / Cerebras / OpenRouter / NVIDIA (optional)
+                    └── Gemini Live (voice calls)
 ```
 
-## Tech Stack
+Persistence is Convex, not `localStorage`. Clearing the browser does not wipe the account.
 
-- React 19
-- TypeScript 5
-- Vite 6
-- Google GenAI SDK (`@google/genai`)
-- Vercel Functions for server-side AI access
-- Browser `localStorage` for persistence
+## Tech stack
 
-## Key Directories
+- React 19, TypeScript 5, Vite 6, Tailwind
+- Convex + Convex Auth
+- Vercel Functions (`api/*.ts`)
+- `lib/cloudflareAi.js`, `lib/providers.js` — plain JS so Vercel ESM can import them
+- `@google/genai` only for live voice (and leftover Gemini chat if Cloudflare is unset)
+- `openai` SDK against OpenAI-compatible bases (Cloudflare, Groq, Cerebras, OpenRouter, NVIDIA)
 
-```text
-api/                    Vercel serverless functions
-components/             UI components
-hooks/                  Reusable hooks
-services/               Browser-side service wrappers
-data/                   Default personas
-App.tsx                 Main stateful application shell
-types.ts                Core types
-constants.ts            Shared constants
-vite.config.ts          Frontend build configuration
-```
+## How model routing works
 
-## How AI Calls Work
+Model ids encode the provider:
 
-### Browser layer
-`services/geminiService.ts` no longer initializes Gemini directly. It now sends `POST` requests to:
+| Prefix | Provider |
+| --- | --- |
+| `@cf/…` | Cloudflare Workers AI |
+| `groq/…` | Groq |
+| `cerebras/…` | Cerebras |
+| `openrouter/…` | OpenRouter |
+| `nvidia/…` | NVIDIA NIM |
+| `gpt-…` / `o1…` | OpenAI |
+| other | Gemini |
 
-- `/api/persona-response`
-- `/api/avatar`
-- `/api/group-avatar`
+The UI stores a single `model` string (chat / persona / app default). Two dropdowns (provider, then model) write that id. `/api/persona-response` strips the prefix before calling the vendor.
 
-This keeps the browser bundle free of API secrets.
+Leftover Gemini/GPT ids remap onto the Cloudflare default when those keys are missing. Groq/Cerebras/OpenRouter/NVIDIA are never remapped.
 
-### Server layer
-The `api/` directory contains the Gemini integrations:
+## Local development
 
-- `api/persona-response.ts` generates in-character persona replies
-- `api/avatar.ts` generates persona avatars
-- `api/group-avatar.ts` generates group chat avatars
-
-Each function reads:
-
-```env
-GEMINI_API_KEY=your_key_here
-```
-
-## Local Development
-
-### Prerequisites
-
-- Node.js
-- npm
-- Gemini API key
-
-### Setup
+Need Node 20+ (`.nvmrc`).
 
 ```bash
 npm install
+cp env.example .env.local
+# fill CLOUDFLARE_* and Convex; optional GROQ_ / CEREBRAS_ / OPENROUTER_ / NVIDIA_
+npx convex dev
+npm run dev:vercel
 ```
 
-Create `.env.local`:
+| Script | What it does |
+| --- | --- |
+| `npm run dev` | Vite UI only (`/api/*` 404s) |
+| `npm run dev:vercel` | UI + serverless AI routes |
+| `npm run verify` | typecheck + test + build — run before `main` |
+| `npm test` | Vitest |
+| `npm run typecheck` | `tsc --noEmit` |
 
-```env
-GEMINI_API_KEY=your_gemini_api_key_here
-```
+## Secrets
 
-### Available scripts
+Never inject provider keys through `VITE_*`. Server functions read `process.env`.
 
-```bash
-npm run dev          # Vite frontend only
-npm run dev:vercel   # Full app: frontend + /api routes
-npm run build        # Production frontend build
-npm run preview      # Static preview of dist/
-```
+See [env.example](env.example) and [DEPLOYMENT.md](DEPLOYMENT.md).
 
-Use `npm run dev:vercel` when testing persona replies or avatar generation locally, because the AI routes live in `api/`.
+## Implementation notes
 
-## Deployment
-
-### Recommended target
-
-Deploy to Vercel.
-
-### Required environment variable
-
-```env
-GEMINI_API_KEY=your_production_key
-```
-
-### Expected Vercel settings
-
-- Framework preset: Vite
-- Install command: `npm install`
-- Build command: `npm run build`
-- Output directory: `dist`
-
-## Data Model
-
-### Persona
-
-```ts
-interface Persona {
-  id: string;
-  name: string;
-  avatar: string;
-  prompt: string;
-  canSearch?: boolean;
-}
-```
-
-### Message
-
-```ts
-interface Message {
-  id: string;
-  authorId: string;
-  text: string;
-  timestamp: number;
-  sources?: Source[];
-}
-```
-
-### ChatRoom
-
-```ts
-interface ChatRoom {
-  id: string;
-  topic: string;
-  avatar?: string;
-  personaIds: string[];
-  messages: Message[];
-}
-```
-
-## Important Implementation Notes
-
-### 1. Secrets
-Never expose `GEMINI_API_KEY` through Vite env injection or `VITE_*` variables for this app.
-
-### 2. Browser persistence
-All chats and personas are stored locally in the browser. Clearing browser storage removes user data.
-
-### 3. Preview mode
-`npm run preview` serves static assets only. It does not emulate Vercel Functions.
-
-### 4. Error handling
-Avatar generation can fail due to safety filters or API errors. The UI already falls back to default avatars when needed.
-
-## Suggested Next Improvements
-
-- Add rate limiting for `/api/*`
-- Add structured logging around AI calls
-- Add request validation for function payloads
-- Add automated tests for browser service wrappers and API routes
-- Add export / import for local chat data
-- Add optional backend persistence for cross-device sync
+- Vercel treats every `api/*.ts` as a function (Hobby cap 12). Do not put helpers in `api/`.
+- Cross-directory `.ts` imports from `api/` fail at runtime (`ERR_MODULE_NOT_FOUND`). Use `lib/*.js` + `vercel.json` `includeFiles: "lib/**"`.
+- Web search (Google grounding) is Gemini-only. Cloudflare/Groq/etc. should use the Read URLs skill.
+- Live voice is Gemini Live only.
+- DeepSeek V4 Pro/Flash on Cloudflare need Workers Paid; Free-plan 403s map to an upgrade message.
 
 ## Troubleshooting
 
-### Persona replies fail locally
-Use `npm run dev:vercel`, not `npm run dev`.
-
-### API key errors
-Check that `.env.local` contains `GEMINI_API_KEY` and that the key has Gemini / Imagen access.
-
-### Build issues
-The frontend build is handled by Vite. The previous browser-side Gemini env injection has been removed, so frontend builds should no longer depend on secret substitution.
+- **Persona replies fail locally** — use `npm run dev:vercel`, not `npm run dev`.
+- **Missing Cloudflare helper** — confirm `lib/cloudflareAi.js` and `lib/providers.js` are deployed (`includeFiles`).
+- **Provider 401/missing key** — set the matching env var on Vercel, sync secrets, redeploy.
+- **`npm run preview`** — static `dist/` only; no functions.
