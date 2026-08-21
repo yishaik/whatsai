@@ -226,6 +226,20 @@ const DirectLiveCall: React.FC<VoiceCallOverlayProps> = ({
     let cancelled = false;
     (async () => {
       try {
+        if (voiceProvider === 'openai') {
+          const session = new OpenAiLiveSession({
+            onStatus: (s) => { if (s === 'listening' || s === 'speaking' || s === 'connecting') setStatus(s); if (s === 'error') setStatus('error'); },
+            onError: setError,
+          });
+          sessionRef.current = {
+            setMuted: (m) => session.setMuted(m),
+            stop: () => session.stop(),
+            update: (instruction) => session.updateInstructions(instruction),
+          };
+          await session.start(systemInstruction, voiceName);
+          return;
+        }
+
         const resp = await fetch('/api/voice-session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -242,17 +256,6 @@ const DirectLiveCall: React.FC<VoiceCallOverlayProps> = ({
           });
           sessionRef.current = session;
           await session.start(body.token, body.model);
-        } else if (voiceProvider === 'openai') {
-          const session = new OpenAiLiveSession({
-            onStatus: (s) => { if (s === 'listening' || s === 'speaking' || s === 'connecting') setStatus(s); if (s === 'error') setStatus('error'); },
-            onError: setError,
-          });
-          sessionRef.current = {
-            setMuted: (m) => session.setMuted(m),
-            stop: () => session.stop(),
-            update: (instruction) => session.updateInstructions(instruction),
-          };
-          await session.start(body.clientSecret, systemInstruction);
         } else {
           const session = new GrokLiveSession({
             onStatus: (s) => { if (s === 'listening' || s === 'speaking' || s === 'connecting') setStatus(s); if (s === 'error') setStatus('error'); },
