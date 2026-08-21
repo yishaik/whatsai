@@ -16,11 +16,11 @@ Browser UI (React 19)
            ├── /api/models             live model list
            ├── /api/avatar, /group-avatar, /generate-image
            ├── /api/transcribe, /tts, /suggest, /summarize
-           └── /api/live-token         Gemini Live only
+           └── /api/voice-session      rate-limit + Worker host
                     │
                     ├── Cloudflare Workers AI (default)
                     ├── Groq / Cerebras / OpenRouter / NVIDIA (optional)
-                    └── Gemini Live (voice calls)
+                    └── Cloudflare Voice Worker (Flux + Aura + Llama)
 ```
 
 Persistence is Convex, not `localStorage`. Clearing the browser does not wipe the account.
@@ -31,8 +31,9 @@ Persistence is Convex, not `localStorage`. Clearing the browser does not wipe th
 - Convex + Convex Auth
 - Vercel Functions (`api/*.ts`)
 - `lib/cloudflareAi.js`, `lib/providers.js` — plain JS so Vercel ESM can import them
-- `@google/genai` only for live voice (and leftover Gemini chat if Cloudflare is unset)
+- `@cloudflare/voice` + `agents` for live voice (Worker in `worker/`, React hook in the overlay)
 - `openai` SDK against OpenAI-compatible bases (Cloudflare, Groq, Cerebras, OpenRouter, NVIDIA)
+- Leftover Gemini chat only if Cloudflare is unset (`@google/genai`)
 
 ## How model routing works
 
@@ -62,12 +63,14 @@ cp env.example .env.local
 # fill CLOUDFLARE_* and Convex; optional GROQ_ / CEREBRAS_ / OPENROUTER_ / NVIDIA_
 npx convex dev
 npm run dev:vercel
+npm run dev:voice   # wrangler on :8787; VOICE_AGENT_HOST=http://localhost:8787
 ```
 
 | Script | What it does |
 | --- | --- |
 | `npm run dev` | Vite UI only (`/api/*` 404s) |
 | `npm run dev:vercel` | UI + serverless AI routes |
+| `npm run dev:voice` | Cloudflare Voice Worker on `:8787` |
 | `npm run verify` | typecheck + test + build — run before `main` |
 | `npm test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` |
@@ -83,7 +86,7 @@ See [env.example](env.example) and [DEPLOYMENT.md](DEPLOYMENT.md).
 - Vercel treats every `api/*.ts` as a function (Hobby cap 12). Do not put helpers in `api/`.
 - Cross-directory `.ts` imports from `api/` fail at runtime (`ERR_MODULE_NOT_FOUND`). Use `lib/*.js` + `vercel.json` `includeFiles: "lib/**"`.
 - Web search (Google grounding) is Gemini-only. Cloudflare/Groq/etc. should use the Read URLs skill.
-- Live voice is Gemini Live only.
+- Live voice is Cloudflare `@cloudflare/voice` (Worker + Durable Object). Do not host the call on Vercel.
 - DeepSeek V4 Pro/Flash on Cloudflare need Workers Paid; Free-plan 403s map to an upgrade message.
 
 ## Troubleshooting
@@ -92,3 +95,4 @@ See [env.example](env.example) and [DEPLOYMENT.md](DEPLOYMENT.md).
 - **Missing Cloudflare helper** — confirm `lib/cloudflareAi.js` and `lib/providers.js` are deployed (`includeFiles`).
 - **Provider 401/missing key** — set the matching env var on Vercel, sync secrets, redeploy.
 - **`npm run preview`** — static `dist/` only; no functions.
+- **Live voice fails** — run `npm run dev:voice` and set `VOICE_AGENT_HOST=http://localhost:8787`. Production needs `npx wrangler deploy` plus `VOICE_AGENT_HOST` on Vercel.
