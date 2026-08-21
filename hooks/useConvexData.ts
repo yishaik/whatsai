@@ -5,6 +5,7 @@ import { useState, useMemo } from "react";
 import { Attachment, ReminderInput, Reminder, UsageInfo, UsageRow } from "../types";
 import type { MemoryFact } from "../memory/types";
 import { DEFAULT_MODEL_ID } from "../services/models";
+import { DEFAULT_VOICE_PROVIDER, isVoiceProvider, VoiceProvider } from "../services/voice";
 
 export type { Attachment, Reminder, UsageRow };
 
@@ -59,11 +60,18 @@ export function useConvexData() {
   const convexChatRooms = useQuery(api.chat.getAllChatRooms) || [];
   const settings = useQuery(api.chat.getMySettings);
   const setDefaultModelMutation = useMutation(api.chat.setDefaultModel);
+  const setVoiceProviderMutation = useMutation(api.chat.setVoiceProvider);
 
   // The user's chosen default reply model (falls back before they pick one).
   const defaultModel = settings?.defaultModel || DEFAULT_MODEL_ID;
   const setDefaultModel = async (model: string) => {
     await setDefaultModelMutation({ model });
+  };
+  const voiceProvider: VoiceProvider = isVoiceProvider(settings?.voiceProvider)
+    ? settings.voiceProvider
+    : DEFAULT_VOICE_PROVIDER;
+  const setVoiceProvider = async (provider: VoiceProvider) => {
+    await setVoiceProviderMutation({ provider });
   };
 
   // Convex mutations
@@ -368,6 +376,8 @@ export function useConvexData() {
     // Settings
     defaultModel,
     setDefaultModel,
+    voiceProvider,
+    setVoiceProvider,
 
     // Persona functions
     addPersona,
