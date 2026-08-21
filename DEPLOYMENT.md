@@ -39,6 +39,45 @@ npm run dev:vercel      # UI + /api/*
 npm run dev:voice       # voice Worker on :8787
 ```
 
+## Live voice — what you still need to do
+
+Cloudflare voice is **already deployed**:
+`https://whatsai-voice.yishai-k.workers.dev`
+
+GitHub already has `VOICE_AGENT_HOST` and a Workers-deploy API token. After adding any extra keys below, run **Actions → Sync Cloudflare env to Vercel**, then **Deploy Production**.
+
+### 1. Cloudflare (done)
+
+No action. Worker is live. Default voice provider in the app is Cloudflare.
+
+### 2. Gemini (optional)
+
+1. Open [Google AI Studio → API keys](https://aistudio.google.com/apikey).
+2. Create a key.
+3. GitHub repo → **Settings → Secrets and variables → Actions → New repository secret**
+   - Name: `GEMINI_API_KEY`
+   - Value: the key
+4. Run **Sync Cloudflare env to Vercel**, then **Deploy Production**.
+5. In the app: **Settings → Live voice provider → Gemini**.
+
+### 3. OpenAI (optional)
+
+1. Open [OpenAI API keys](https://platform.openai.com/api-keys).
+2. Create a key. Realtime billing must be enabled on the account.
+3. GitHub secret name: `OPENAI_API_KEY`
+4. Sync env to Vercel, then Deploy Production.
+5. In the app: **Settings → Live voice provider → OpenAI**.
+
+### 4. Grok / xAI (optional)
+
+1. Open [xAI console API keys](https://console.x.ai/team/default/api-keys).
+2. Create a key.
+3. GitHub secret name: `XAI_API_KEY` (not `GROK_API_KEY` — that name is Groq chat).
+4. Sync env to Vercel, then Deploy Production.
+5. In the app: **Settings → Live voice provider → Grok**.
+
+Local `.env.local` uses the same names. Restart `npm run dev:vercel` after changing it.
+
 ## Required GitHub secrets
 
 **Settings → Secrets and variables → Actions:**
@@ -71,7 +110,10 @@ After changing AI secrets, run **Actions → Sync Cloudflare env to Vercel**, th
 | `CEREBRAS_API_KEY` | Optional Cerebras chat |
 | `OPENROUTER_API_KEY` | Optional OpenRouter (free `:free` models) |
 | `NVIDIA_API_KEY` | Optional NVIDIA NIM |
-| `VOICE_AGENT_HOST` | Cloudflare Voice Worker URL (`https://whatsai-voice.<subdomain>.workers.dev`) |
+| `VOICE_AGENT_HOST` | Cloudflare Voice Worker URL (`https://whatsai-voice.yishai-k.workers.dev`) |
+| `GEMINI_API_KEY` | Optional — Gemini Live |
+| `OPENAI_API_KEY` | Optional — OpenAI Realtime (also leftover GPT chat) |
+| `XAI_API_KEY` | Optional — Grok speech-to-speech |
 | `OPENAI_API_KEY` | Optional leftover GPT path if Cloudflare is unset |
 | `VITE_CONVEX_SITE_URL` | Optional Convex HTTP actions URL |
 
