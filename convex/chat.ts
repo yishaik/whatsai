@@ -44,7 +44,7 @@ const RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
 const IP_RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
   ai: { limit: 80, windowMs: 60_000 }, // /api/persona-response
   image: { limit: 20, windowMs: 60_000 }, // /api/avatar, /api/group-avatar
-  voice: { limit: 20, windowMs: 60_000 }, // /api/live-token
+  voice: { limit: 20, windowMs: 60_000 }, // /api/voice-session
   moderate: { limit: 200, windowMs: 60_000 }, // /api/moderate (cheap; called per message + reply)
   summarize: { limit: 60, windowMs: 60_000 }, // /api/summarize (server-triggered for long chats)
   suggest: { limit: 120, windowMs: 60_000 }, // /api/suggest (reply suggestions)
