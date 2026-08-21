@@ -7,45 +7,27 @@ export interface LiveVoiceHandlers {
 
 const SAMPLE_RATE = 24000;
 
-const downsample = (input: Float32Array, inRate: number, outRate: number): Float32Array => {
-  if (outRate >= inRate) return input;
-  const ratio = inRate / outRate;
-  const outLength = Math.floor(input.length / ratio);
-  const out = new Float32Array(outLength);
-  for (let i = 0; i < outLength; i++) out[i] = input[Math.floor(i * ratio)];
+const floatToPcm16 = (input: Float32Array): Int16Array => {
+  const out = new Int16Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    const s = Math.max(-1, Math.min(1, input[i]));
+    out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
   return out;
 };
 
-const floatToPcm16Base64 = (input: Float32Array): string => {
-  const buffer = new ArrayBuffer(input.length * 2);
-  const view = new DataView(buffer);
-  for (let i = 0; i < input.length; i++) {
-    const s = Math.max(-1, Math.min(1, input[i]));
-    view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-  }
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-};
-
-const base64Pcm16ToFloat32 = (b64: string): Float32Array => {
-  const binary = atob(b64);
-  const len = binary.length / 2;
-  const out = new Float32Array(len);
-  const view = new DataView(new ArrayBuffer(2));
-  for (let i = 0; i < len; i++) {
-    view.setUint8(0, binary.charCodeAt(i * 2));
-    view.setUint8(1, binary.charCodeAt(i * 2 + 1));
-    out[i] = view.getInt16(0, true) / 0x8000;
-  }
+const pcm16ToFloat = (bytes: ArrayBuffer): Float32Array => {
+  const pcm = new Int16Array(bytes);
+  const out = new Float32Array(pcm.length);
+  for (let i = 0; i < pcm.length; i++) out[i] = pcm[i] / 0x8000;
   return out;
 };
 
 const getAudioContextCtor = (): typeof AudioContext =>
   window.AudioContext || (window as any).webkitAudioContext;
 
-// xAI Grok speech-to-speech over WebSocket, authenticated with an ephemeral token.
+// Native speech-to-speech over xAI Realtime. Binary PCM + server VAD so it
+// behaves like a phone call (barge-in, no "press to talk").
 export class GrokLiveSession {
   private ws: WebSocket | null = null;
   private captureCtx: AudioContext | null = null;
@@ -68,8 +50,11 @@ export class GrokLiveSession {
   async start(clientSecret: string, wsUrl: string, systemInstruction: string, voiceName: string): Promise<void> {
     this.setStatus('connecting');
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
       const ws = new WebSocket(wsUrl, [`xai-client-secret.${clientSecret}`]);
+      ws.binaryType = 'arraybuffer';
       this.ws = ws;
       ws.onopen = () => {
         this.opened = true;
@@ -78,10 +63,22 @@ export class GrokLiveSession {
           session: {
             voice: voiceName,
             instructions: systemInstruction,
-            turn_detection: { type: 'server_vad' },
+            reasoning: { effort: 'none' },
+            turn_detection: {
+              type: 'server_vad',
+              threshold: 0.4,
+              silence_duration_ms: 450,
+              prefix_padding_ms: 250,
+            },
             audio: {
-              input: { format: { type: 'audio/pcm', rate: SAMPLE_RATE } },
-              output: { format: { type: 'audio/pcm', rate: SAMPLE_RATE } },
+              input: {
+                format: { type: 'audio/pcm', rate: SAMPLE_RATE },
+                transport: 'binary',
+              },
+              output: {
+                format: { type: 'audio/pcm', rate: SAMPLE_RATE },
+                transport: 'binary',
+              },
             },
           },
         }));
@@ -114,19 +111,32 @@ export class GrokLiveSession {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         type: 'session.update',
-        session: { voice: voiceName, instructions: systemInstruction },
+        session: { voice: voiceName, instructions: systemInstruction, reasoning: { effort: 'none' } },
       }));
     }
   }
 
   private handleMessage(raw: unknown) {
+    if (raw instanceof ArrayBuffer) {
+      this.enqueuePlayback(pcm16ToFloat(raw));
+      return;
+    }
     if (typeof raw !== 'string') return;
     let event: any;
     try { event = JSON.parse(raw); } catch { return; }
     const type = event?.type as string | undefined;
+    if (type === 'input_audio_buffer.speech_started') {
+      this.flushPlayback();
+      if (!this.stopped) this.setStatus('listening');
+    }
     if (type === 'response.output_audio.delta' || type === 'response.audio.delta') {
       const delta = event.delta || event.audio;
-      if (typeof delta === 'string') this.enqueuePlayback(delta);
+      if (typeof delta === 'string') {
+        const binary = atob(delta);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        this.enqueuePlayback(pcm16ToFloat(bytes.buffer));
+      }
     }
     if (type === 'response.done') {
       if (!this.stopped && this.scheduled.length === 0) this.setStatus('listening');
@@ -139,17 +149,16 @@ export class GrokLiveSession {
 
   private startCapture() {
     const Ctor = getAudioContextCtor();
-    this.captureCtx = new Ctor();
+    this.captureCtx = new Ctor({ sampleRate: SAMPLE_RATE });
+    void this.captureCtx.resume();
     const ctx = this.captureCtx;
     this.sourceNode = ctx.createMediaStreamSource(this.stream!);
-    this.processor = ctx.createScriptProcessor(4096, 1, 1);
+    this.processor = ctx.createScriptProcessor(2048, 1, 1);
     this.processor.onaudioprocess = (e) => {
       if (this.stopped || this.muted || this.ws?.readyState !== WebSocket.OPEN) return;
-      const input = e.inputBuffer.getChannelData(0);
-      const down = downsample(input, ctx.sampleRate, SAMPLE_RATE);
-      const audio = floatToPcm16Base64(down);
+      const pcm = floatToPcm16(e.inputBuffer.getChannelData(0));
       try {
-        this.ws!.send(JSON.stringify({ type: 'input_audio_buffer.append', audio }));
+        this.ws!.send(pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength));
       } catch { /* closing */ }
     };
     this.sourceNode.connect(this.processor);
@@ -159,12 +168,12 @@ export class GrokLiveSession {
     sink.connect(ctx.destination);
   }
 
-  private enqueuePlayback(base64Pcm: string) {
-    if (this.stopped) return;
+  private enqueuePlayback(float: Float32Array) {
+    if (this.stopped || float.length === 0) return;
     const Ctor = getAudioContextCtor();
-    if (!this.playbackCtx) this.playbackCtx = new Ctor();
+    if (!this.playbackCtx) this.playbackCtx = new Ctor({ sampleRate: SAMPLE_RATE });
+    void this.playbackCtx.resume();
     const ctx = this.playbackCtx;
-    const float = base64Pcm16ToFloat32(base64Pcm);
     const buffer = ctx.createBuffer(1, float.length, SAMPLE_RATE);
     buffer.copyToChannel(float, 0);
     const node = ctx.createBufferSource();
@@ -181,6 +190,14 @@ export class GrokLiveSession {
     };
   }
 
+  private flushPlayback() {
+    for (const node of this.scheduled) {
+      try { node.stop(); } catch { /* noop */ }
+    }
+    this.scheduled = [];
+    this.playCursor = this.playbackCtx?.currentTime ?? 0;
+  }
+
   setMuted(muted: boolean) {
     this.muted = muted;
   }
@@ -191,10 +208,7 @@ export class GrokLiveSession {
 
   stop() {
     this.stopped = true;
-    for (const node of this.scheduled) {
-      try { node.stop(); } catch { /* noop */ }
-    }
-    this.scheduled = [];
+    this.flushPlayback();
     try { this.ws?.close(); } catch { /* noop */ }
     this.ws = null;
     if (this.processor) { this.processor.onaudioprocess = null; try { this.processor.disconnect(); } catch {} }

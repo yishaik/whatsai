@@ -29,7 +29,7 @@ const AURA_SPEAKERS = new Set([
 ]);
 
 const DEFAULT_SYSTEM =
-  "You are on a live voice call. Stay in character. Speak naturally and concisely, like a real phone conversation. Reply in the user's language.";
+  "You are on a live phone call. Stay in character. Answer in one or two spoken sentences, then stop and listen. Never lecture. Reply in the user's language.";
 
 type PersonaState = {
   systemInstruction: string;
@@ -51,7 +51,7 @@ export class PersonaVoiceAgent extends VoiceAgent<Env, PersonaState> {
     personaName: "",
   };
 
-  transcriber = new WorkersAIFluxSTT(this.ai);
+  transcriber = new WorkersAIFluxSTT(this.ai, { eotThreshold: 0.5, eagerEotThreshold: 0.35 });
   tts = new WorkersAITTS(this.ai, {
     model: "@cf/deepgram/aura-1",
     speaker: "asteria",
@@ -107,7 +107,7 @@ export class PersonaVoiceAgent extends VoiceAgent<Env, PersonaState> {
         ...history,
         { role: "user", content: transcript },
       ],
-      max_tokens: 220,
+      max_tokens: 90,
       stream: true,
     });
 

@@ -37,9 +37,10 @@ export const personaInstruction = (persona: Persona, chatTopic: string, personas
     ? ` Other people also on this group call (the user can switch to them): ${others.join(', ')}.`
     : '';
   return (
-    `You are "${persona.name}", on a live voice call with the user about "${chatTopic}". ` +
-    `Your personality: "${persona.prompt}". Stay fully in character. Speak naturally and ` +
-    `concisely, like a real phone conversation. Reply in the user's language.${groupNote}`
+    `You are "${persona.name}", on a live phone call with the user about "${chatTopic}". ` +
+    `Your personality: "${persona.prompt}". Stay fully in character. This is spoken dialogue: ` +
+    `answer in one or two short sentences, then listen. Do not lecture or list things. ` +
+    `Reply in the user's language.${groupNote}`
   );
 };
 
@@ -163,6 +164,9 @@ const CloudflareCall: React.FC<VoiceCallOverlayProps> = ({
       name: callName,
       host: host ?? undefined,
       enabled: !!host,
+      silenceDurationMs: 280,
+      interruptThreshold: 0.035,
+      interruptChunks: 2,
     });
 
   useEffect(() => {
@@ -255,7 +259,7 @@ const DirectLiveCall: React.FC<VoiceCallOverlayProps> = ({
             onError: setError,
           });
           sessionRef.current = session;
-          await session.start(body.token, body.model);
+          await session.start(body.token, body.model, body.apiVersion || 'v1beta');
         } else {
           const session = new GrokLiveSession({
             onStatus: (s) => { if (s === 'listening' || s === 'speaking' || s === 'connecting') setStatus(s); if (s === 'error') setStatus('error'); },

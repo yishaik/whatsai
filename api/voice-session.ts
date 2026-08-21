@@ -23,19 +23,27 @@ const ipLimitOk = async (req: any, action: string): Promise<boolean> => {
 const PROVIDERS = ['cloudflare', 'gemini', 'openai', 'grok'] as const;
 type VoiceProvider = (typeof PROVIDERS)[number];
 
-const GEMINI_LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-09-2025';
-const OPENAI_REALTIME_MODEL = 'gpt-realtime';
+const GEMINI_LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
+const OPENAI_REALTIME_MODEL = 'gpt-realtime-2.1';
 const GROK_VOICE_MODEL = 'grok-voice-latest';
 
 const voiceHost = (): string =>
   (process.env.VOICE_AGENT_HOST || process.env.VITE_VOICE_AGENT_HOST || '').replace(/\/$/, '');
 
+const envKey = (...names: string[]): string => {
+  for (const name of names) {
+    const v = (process.env[name] || '').trim();
+    if (v) return v;
+  }
+  return '';
+};
+
 const available = (): VoiceProvider[] => {
   const out: VoiceProvider[] = [];
   if (voiceHost()) out.push('cloudflare');
-  if (process.env.GEMINI_API_KEY || process.env.API_KEY) out.push('gemini');
-  if (process.env.OPENAI_API_KEY) out.push('openai');
-  if (process.env.XAI_API_KEY) out.push('grok');
+  if (envKey('GEMINI_API_KEY', 'API_KEY')) out.push('gemini');
+  if (envKey('OPENAI_API_KEY')) out.push('openai');
+  if (envKey('XAI_API_KEY')) out.push('grok');
   return out;
 };
 
@@ -75,43 +83,61 @@ const explainVoiceError = (err: unknown): string => {
 };
 
 const mintGemini = async (systemInstruction?: string, voiceName?: string) => {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+  const apiKey = envKey('GEMINI_API_KEY', 'API_KEY');
   if (!apiKey) throw new Error(missingMessage('gemini'));
-  const ai = new GoogleGenAI({ apiKey, httpOptions: { apiVersion: 'v1alpha' } });
-  const now = Date.now();
-  const token = await ai.authTokens.create({
-    config: {
-      uses: 1,
-      newSessionExpireTime: new Date(now + 2 * 60 * 1000).toISOString(),
-      expireTime: new Date(now + 30 * 60 * 1000).toISOString(),
-      liveConnectConstraints: {
-        model: GEMINI_LIVE_MODEL,
+  const attempts: { apiVersion: string; model: string }[] = [
+    { apiVersion: 'v1beta', model: GEMINI_LIVE_MODEL },
+    { apiVersion: 'v1alpha', model: GEMINI_LIVE_MODEL },
+    { apiVersion: 'v1alpha', model: 'gemini-2.5-flash-native-audio-preview-09-2025' },
+  ];
+  let lastErr: unknown;
+  for (const attempt of attempts) {
+    try {
+      const ai = new GoogleGenAI({ apiKey, httpOptions: { apiVersion: attempt.apiVersion } });
+      const now = Date.now();
+      const token = await ai.authTokens.create({
         config: {
-          responseModalities: [Modality.AUDIO],
-          ...(systemInstruction ? { systemInstruction } : {}),
-          ...(voiceName
-            ? { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } } }
-            : {}),
+          uses: 1,
+          newSessionExpireTime: new Date(now + 2 * 60 * 1000).toISOString(),
+          expireTime: new Date(now + 30 * 60 * 1000).toISOString(),
+          liveConnectConstraints: {
+            model: attempt.model,
+            config: {
+              responseModalities: [Modality.AUDIO],
+              ...(systemInstruction ? { systemInstruction } : {}),
+              ...(voiceName
+                ? { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } } }
+                : {}),
+            },
+          },
         },
-      },
-    },
-  });
-  if (!token.name) throw new Error('Failed to mint Gemini live token.');
-  return { provider: 'gemini' as const, token: token.name, model: GEMINI_LIVE_MODEL };
+      });
+      if (!token.name) throw new Error('Failed to mint Gemini live token.');
+      return { provider: 'gemini' as const, token: token.name, model: attempt.model, apiVersion: attempt.apiVersion };
+    } catch (err) {
+      lastErr = err;
+      if (/api[_ ]key not valid|api_key_invalid/i.test(errorText(err))) throw err;
+    }
+  }
+  throw lastErr;
 };
 
 const openAiSessionConfig = (systemInstruction?: string, voiceName?: string) =>
   JSON.stringify({
     type: 'realtime',
     model: OPENAI_REALTIME_MODEL,
-    instructions: systemInstruction || 'You are on a live voice call. Stay in character and keep replies short.',
-    audio: { output: { voice: voiceName || 'marin' } },
+    output_modalities: ['audio'],
+    instructions: systemInstruction || 'You are on a live phone call. Stay in character. Answer in one or two spoken sentences.',
+    audio: {
+      input: { turn_detection: { type: 'semantic_vad' } },
+      output: { voice: voiceName || 'marin' },
+    },
   });
 
 // Browser WebRTC cannot POST SDP to api.openai.com (CORS). We exchange SDP
 // here with the real key, then return the answer SDP to the client.
 const mintOpenAiSdp = async (sdp: string, systemInstruction?: string, voiceName?: string) => {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = envKey('OPENAI_API_KEY');
   if (!apiKey) throw new Error(missingMessage('openai'));
   const fd = new FormData();
   fd.set('sdp', sdp);
@@ -129,7 +155,7 @@ const mintOpenAiSdp = async (sdp: string, systemInstruction?: string, voiceName?
 };
 
 const mintGrok = async () => {
-  const apiKey = process.env.XAI_API_KEY;
+  const apiKey = envKey('XAI_API_KEY');
   if (!apiKey) throw new Error(missingMessage('grok'));
   const resp = await fetch('https://api.x.ai/v1/realtime/client_secrets', {
     method: 'POST',
