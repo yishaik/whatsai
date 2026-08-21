@@ -119,7 +119,7 @@ Because a toy messenger is still a toy.
 
 The browser never holds an API key. Convex is the source of truth for rooms, messages, auth, memory, and reminders. Vercel `api/*` holds provider keys and runs inference. Live voice is Cloudflare (default Worker), or Gemini / OpenAI / Grok via short-lived sessions minted on the server.
 
-Full graphs, data model, and the real reply/voice/memory loops: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+Full graphs, data model, and the real reply/voice/memory loops: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** · interactive walkthrough: **[docs/how-it-works.html](docs/how-it-works.html)**.
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -213,7 +213,7 @@ Anonymous auth fires on first load so the app is usable with zero clicks. Sign i
 | AI routes | Vercel Functions in `api/` | Secrets stay server-side; streaming persona replies |
 | Client extras | MiniSearch, TanStack Virtual, Web Push, vite-plugin-pwa | Instant search, long-thread scrolling, reminders that land, installable app |
 
-How every path actually runs (graphs): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · local setup: [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) · ship it: [DEPLOYMENT.md](DEPLOYMENT.md)
+How every path actually runs: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/how-it-works.html](docs/how-it-works.html) · local setup: [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) · ship it: [DEPLOYMENT.md](DEPLOYMENT.md)
 
 ---
 
@@ -253,6 +253,7 @@ hooks/               Convex data, live models, messages
 memory/              Napkin-style MemoryEngine (storage-agnostic)
 services/            Client wrappers: skills, speech, voice, export, pricing
 docs/ARCHITECTURE.md System graphs — how chat, voice, memory, CI/CD actually work
+docs/how-it-works.html Interactive HTML walkthrough of the same maps
 docs/screenshots/    README captures of the real UI
 ```
 

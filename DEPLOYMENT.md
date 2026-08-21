@@ -5,7 +5,7 @@ WhatsAI deploys to **Vercel** (frontend + `api/*` serverless functions) with a
 path. CI/CD is GitHub Actions. Git auto-deploys on Vercel are off (`vercel.json`
 `git.deploymentEnabled: false`); Actions is the deployer.
 
-Graphs of the live system: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Graphs of the live system: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Browser walkthrough: [docs/how-it-works.html](docs/how-it-works.html).
 
 ## Architecture
 

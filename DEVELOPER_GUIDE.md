@@ -4,7 +4,7 @@
 
 WhatsAI is a Vite + React + TypeScript app: a WhatsApp-style **multi-persona group chat**. Personas, rooms, messages, auth, and memory live in **Convex**. AI inference runs in **Vercel serverless functions** so provider keys never reach the browser.
 
-How each path actually runs (chat turn, riff, four voice providers, memory, CI/CD, data model): **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+How each path actually runs (chat turn, riff, four voice providers, memory, CI/CD, data model): **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**. Open **[docs/how-it-works.html](docs/how-it-works.html)** in a browser for the same maps with a sidebar.
 
 ## Architecture
 
