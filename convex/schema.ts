@@ -6,7 +6,7 @@ export default defineSchema({
   // Convex Auth tables (users, authAccounts, authSessions, ...).
   ...authTables,
 
-  // פרסונות (דמויות AI)
+  // AI personas (characters). Unowned and global today — any client can list/create/edit/delete.
   personas: defineTable({
     name: v.string(),
     // Legacy inline avatar (base64 data URI). New avatars live in file storage
@@ -28,7 +28,7 @@ export default defineSchema({
     createdAt: v.number(),
   }),
 
-  // חדרי צ'אט
+  // Chat rooms.
   chatRooms: defineTable({
     topic: v.string(),
     avatar: v.optional(v.string()), // legacy inline base64 group avatar
@@ -79,7 +79,7 @@ export default defineSchema({
     windowStart: v.number(),
   }).index("by_key", ["key"]),
 
-  // הודעות
+  // Messages.
   messages: defineTable({
     chatRoomId: v.id("chatRooms"),
     authorId: v.string(), // 'user' or persona ID

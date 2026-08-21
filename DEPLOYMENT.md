@@ -1,9 +1,11 @@
 # Deployment Guide
 
 WhatsAI deploys to **Vercel** (frontend + `api/*` serverless functions) with a
-**Convex** backend for data and a **Cloudflare Worker** for live voice. CI/CD is
-GitHub Actions. Git auto-deploys on Vercel are off (`vercel.json`
+**Convex** backend for data and a **Cloudflare Worker** for the default live-voice
+path. CI/CD is GitHub Actions. Git auto-deploys on Vercel are off (`vercel.json`
 `git.deploymentEnabled: false`); Actions is the deployer.
+
+Graphs of the live system: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Architecture
 
@@ -11,13 +13,16 @@ GitHub Actions. Git auto-deploys on Vercel are off (`vercel.json`
 - **API** — `api/*.ts` run as Vercel serverless functions. They hold provider
   keys. Shared helpers live in `lib/*.js` (plain JS so Vercel ESM can load them).
 - **Backend** — Convex for personas, rooms, messages, auth, memory, reminders.
-- **Live voice** — Cloudflare Worker + Durable Object (`worker/`, `wrangler.jsonc`)
-  using `@cloudflare/voice` (Flux STT, Aura TTS, Llama 3.1 8B Fast).
+- **Live voice** — four providers, picked in Settings:
+  - **Cloudflare** (default) — Worker + Durable Object (`worker/`, `wrangler.jsonc`)
+    using `@cloudflare/voice` (Flux STT, Aura TTS, Llama 3.1 8B Fast). Turn-based pipeline.
+  - **Gemini Live** — ephemeral token from `GEMINI_API_KEY`.
+  - **OpenAI Realtime** — SDP exchanged server-side (`OPENAI_API_KEY`); browser WebRTC.
+  - **Grok** — ephemeral `XAI_API_KEY` client secret; browser WebSocket PCM.
 
 Chat, images, STT, and TTS use **Cloudflare Workers AI** when
 `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` are set. Groq, Cerebras,
-OpenRouter, and NVIDIA are optional OpenAI-compatible extras. Live voice does
-not use Gemini.
+OpenRouter, and NVIDIA are optional OpenAI-compatible extras.
 
 ## CI/CD pipelines
 
@@ -28,7 +33,7 @@ not use Gemini.
 | `.github/workflows/cd.yml` | push to `main` (non-docs), or **workflow_dispatch** | Type-check → `wrangler deploy` → `convex deploy` → Vercel production |
 | `.github/workflows/sync-cloudflare-env.yml` | **workflow_dispatch** | Copies AI GitHub secrets onto the Vercel project |
 
-Node version is pinned by `.nvmrc`.
+Node version is pinned by `.nvmrc` (**22** — Wrangler will not deploy on 20).
 
 **Before pushing to `main`:**
 
@@ -95,6 +100,9 @@ Local `.env.local` uses the same names. Restart `npm run dev:vercel` after chang
 | `CEREBRAS_API_KEY` | env sync → Vercel (optional) | [inference.cerebras.ai](https://inference.cerebras.ai) |
 | `OPENROUTER_API_KEY` | env sync → Vercel (optional) | [openrouter.ai/keys](https://openrouter.ai/keys) |
 | `NVIDIA_API_KEY` | env sync → Vercel (optional) | [build.nvidia.com](https://build.nvidia.com) |
+| `GEMINI_API_KEY` | env sync → Vercel (optional, Gemini Live + leftover Gemini chat) | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
+| `OPENAI_API_KEY` | env sync → Vercel (optional, Realtime voice + leftover GPT chat) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| `XAI_API_KEY` | env sync → Vercel (optional, Grok voice) | [console.x.ai](https://console.x.ai) — not `GROQ_API_KEY` |
 
 After changing AI secrets, run **Actions → Sync Cloudflare env to Vercel**, then
 **Deploy Production** so functions pick up the new env.
@@ -111,10 +119,9 @@ After changing AI secrets, run **Actions → Sync Cloudflare env to Vercel**, th
 | `OPENROUTER_API_KEY` | Optional OpenRouter (free `:free` models) |
 | `NVIDIA_API_KEY` | Optional NVIDIA NIM |
 | `VOICE_AGENT_HOST` | Cloudflare Voice Worker URL (`https://whatsai-voice.yishai-k.workers.dev`) |
-| `GEMINI_API_KEY` | Optional — Gemini Live |
-| `OPENAI_API_KEY` | Optional — OpenAI Realtime (also leftover GPT chat) |
-| `XAI_API_KEY` | Optional — Grok speech-to-speech |
-| `OPENAI_API_KEY` | Optional leftover GPT path if Cloudflare is unset |
+| `GEMINI_API_KEY` | Optional — Gemini Live (and leftover Gemini chat) |
+| `OPENAI_API_KEY` | Optional — OpenAI Realtime and leftover GPT chat |
+| `XAI_API_KEY` | Optional — Grok speech-to-speech (not Groq) |
 | `VITE_CONVEX_SITE_URL` | Optional Convex HTTP actions URL |
 
 ## Manual deploy (fallback)

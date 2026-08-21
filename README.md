@@ -117,34 +117,38 @@ Because a toy messenger is still a toy.
 
 ## How it works
 
+The browser never holds an API key. Convex is the source of truth for rooms, messages, auth, memory, and reminders. Vercel `api/*` holds provider keys and runs inference. Live voice is Cloudflare (default Worker), or Gemini / OpenAI / Grok via short-lived sessions minted on the server.
+
+Full graphs, data model, and the real reply/voice/memory loops: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │  Browser  ·  React 19  ·  Vite 6  ·  PWA                    │
 │  WhatsApp-style UI, anonymous session, Google upgrade       │
 └──────┬──────────────────────┬───────────────────┬───────────┘
-       │ WebSocket            │ fetch /api/*      │ Voice WS
+       │ WebSocket            │ fetch /api/*      │ Voice
        ▼                      ▼                   ▼
 ┌──────────────────┐  ┌──────────────────────┐  ┌─────────────────────┐
-│  Convex          │  │  Vercel Functions    │  │  Cloudflare Worker  │
-│  personas · msgs │  │  /persona-response   │  │  whatsai-voice      │
-│  auth · memory   │  │  /avatar /image /tts │  │  Flux STT · Aura    │
-│  reminders ·push │  │  /transcribe /models │  │  Llama · Durable DO │
-│  rate limit      │  │  /voice-session      │  └─────────────────────┘
-└──────────────────┘  │  Keys stay here      │
+│  Convex          │  │  Vercel Functions    │  │  Voice              │
+│  personas · msgs │  │  /persona-response   │  │  CF Worker (default)│
+│  auth · memory   │  │  /avatar /image /tts │  │  Gemini Live        │
+│  reminders ·push │  │  /transcribe /models │  │  OpenAI Realtime    │
+│  rate limit      │  │  /voice-session      │  │  Grok Realtime      │
+└──────────────────┘  │  Keys stay here      │  └─────────────────────┘
                       └──────────────────────┘
 ```
 
-**The browser never holds an API key.** `services/geminiService.ts` is a thin client over `/api/*`. Chat, images, STT, and TTS go through **Cloudflare Workers AI** when `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` are set. Optional OpenAI-compatible keys unlock Groq, Cerebras, OpenRouter, and NVIDIA. Live voice is a **Cloudflare Voice Worker** (`worker/`, Flux + Aura + Llama); `/api/voice-session` only rate-limits and returns the Worker host.
+`services/geminiService.ts` is a thin client over `/api/*` (the name is leftover). Chat, images, STT, and TTS go through **Cloudflare Workers AI** when `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` are set. Optional OpenAI-compatible keys unlock Groq, Cerebras, OpenRouter, and NVIDIA. `/api/voice-session` rate-limits and mints a session; it never returns a long-lived vendor key.
 
-**Convex is the source of truth.** Rooms, messages, avatars (file storage), reminders, push subscriptions, and the memory vault are reactive. Multiple open clients on the same public room won't double-generate: a `responseClaims` table lets only one tab win the slot for a given persona × trigger message.
+Multiple open clients on the same public room won't double-generate: a `responseClaims` table lets only one tab win the slot for a given persona × trigger message.
 
-**Models are a live registry.** Settings, chats, and personas use two dropdowns — **provider**, then **model**. `/api/models` lists Cloudflare plus any other provider whose key is configured. OpenRouter's free `:free` catalog is fetched live.
+**Models are a live registry.** Settings, chats, and personas use two dropdowns — **provider**, then **model**. `/api/models` lists Cloudflare plus any other provider whose key is configured. OpenRouter's free catalog is fetched live.
 
 ---
 
 ## Quick start
 
-**Need Node 20+** (see `.nvmrc`).
+**Need Node 22** (see `.nvmrc`; Wrangler will not deploy the voice Worker on 20).
 
 ```bash
 git clone https://github.com/yishaik/whatsai.git
@@ -209,7 +213,7 @@ Anonymous auth fires on first load so the app is usable with zero clicks. Sign i
 | AI routes | Vercel Functions in `api/` | Secrets stay server-side; streaming persona replies |
 | Client extras | MiniSearch, TanStack Virtual, Web Push, vite-plugin-pwa | Instant search, long-thread scrolling, reminders that land, installable app |
 
-Deep-dive: [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) · ship it: [DEPLOYMENT.md](DEPLOYMENT.md)
+How every path actually runs (graphs): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · local setup: [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) · ship it: [DEPLOYMENT.md](DEPLOYMENT.md)
 
 ---
 
@@ -224,7 +228,7 @@ Required:
 | Where | Variable |
 | --- | --- |
 | Vercel | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `VITE_CONVEX_URL`, `VOICE_AGENT_HOST` |
-| Vercel (optional) | `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`, `NVIDIA_API_KEY` |
+| Vercel (optional) | `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`, `NVIDIA_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` |
 | GitHub Actions | `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `CONVEX_DEPLOY_KEY`, `CLOUDFLARE_API_TOKEN`, plus the same AI keys to sync onto Vercel |
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the exact pipeline and the fallback `vercel deploy` commands.
@@ -248,6 +252,7 @@ data/                Default personas
 hooks/               Convex data, live models, messages
 memory/              Napkin-style MemoryEngine (storage-agnostic)
 services/            Client wrappers: skills, speech, voice, export, pricing
+docs/ARCHITECTURE.md System graphs — how chat, voice, memory, CI/CD actually work
 docs/screenshots/    README captures of the real UI
 ```
 
