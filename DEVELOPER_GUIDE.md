@@ -4,26 +4,28 @@
 
 WhatsAI is a Vite + React + TypeScript app: a WhatsApp-style **multi-persona group chat**. Personas, rooms, messages, auth, and memory live in **Convex**. AI inference runs in **Vercel serverless functions** so provider keys never reach the browser.
 
+How each path actually runs (chat turn, riff, four voice providers, memory, CI/CD, data model): **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
 ## Architecture
 
 ```text
 Browser UI (React 19)
   ├── Convex subscriptions (rooms, messages, personas)
   ├── Provider + model pickers (Settings, chat, persona)
-  └── services/geminiService.ts  →  fetch('/api/*')
+  └── services/geminiService.ts  →  fetch('/api/*')   // name is leftover; not Gemini-only
            │
            ├── /api/persona-response   chat (stream)
            ├── /api/models             live model list
            ├── /api/avatar, /group-avatar, /generate-image
            ├── /api/transcribe, /tts, /suggest, /summarize
-           └── /api/voice-session      rate-limit + Worker host
+           └── /api/voice-session      rate-limit + mint session
                     │
-                    ├── Cloudflare Workers AI (default)
-                    ├── Groq / Cerebras / OpenRouter / NVIDIA (optional)
-                    └── Cloudflare Voice Worker (Flux + Aura + Llama)
+                    ├── Cloudflare Workers AI (default chat/image/STT/TTS)
+                    ├── Groq / Cerebras / OpenRouter / NVIDIA (optional chat)
+                    └── Voice: CF Worker · Gemini Live · OpenAI Realtime · Grok
 ```
 
-Persistence is Convex, not `localStorage`. Clearing the browser does not wipe the account.
+Persistence is Convex, not `localStorage`. Clearing the browser does not wipe the account. The browser **orchestrates** a chat turn (claim slot → recall memory → `/api/persona-response` → moderate → post). Convex does not call the LLM.
 
 ## Tech stack
 
@@ -33,7 +35,7 @@ Persistence is Convex, not `localStorage`. Clearing the browser does not wipe th
 - `lib/cloudflareAi.js`, `lib/providers.js` — plain JS so Vercel ESM can import them
 - `@cloudflare/voice` + `agents` for live voice (Worker in `worker/`, React hook in the overlay)
 - `openai` SDK against OpenAI-compatible bases (Cloudflare, Groq, Cerebras, OpenRouter, NVIDIA)
-- Leftover Gemini chat only if Cloudflare is unset (`@google/genai`)
+- Leftover Gemini chat only if Cloudflare is unset (`@google/genai`). `services/geminiService.ts` is the `/api/*` client for every provider, not Gemini-only.
 
 ## How model routing works
 
@@ -55,7 +57,7 @@ Leftover Gemini/GPT ids remap onto the Cloudflare default when those keys are mi
 
 ## Local development
 
-Need Node 20+ (`.nvmrc`).
+Need Node 22 (`.nvmrc`). Wrangler will refuse to deploy the voice Worker on Node 20.
 
 ```bash
 npm install

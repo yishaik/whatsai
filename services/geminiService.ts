@@ -1,3 +1,5 @@
+// Browser client for /api/* (chat, avatars, images). Name is leftover from the
+// Gemini-only era — routing lives in api/persona-response.ts + lib/providers.js.
 import type { Persona, Message, Source, ReminderInput, UsageInfo } from '../types';
 import { extractMemoryFacts, stripMemoryTokens } from '../memory/distill';
 import type { MemoryFact } from '../memory/types';
