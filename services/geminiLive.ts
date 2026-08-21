@@ -83,11 +83,13 @@ export class LiveVoiceSession {
     this.handlers.onStatus?.(s);
   }
 
-  async start(token: string, model: string): Promise<void> {
+  async start(token: string, model: string, apiVersion = 'v1beta'): Promise<void> {
     this.setStatus('connecting');
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const ai = new GoogleGenAI({ apiKey: token, httpOptions: { apiVersion: 'v1alpha' } });
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      const ai = new GoogleGenAI({ apiKey: token, httpOptions: { apiVersion } });
       this.session = await ai.live.connect({
         model,
         callbacks: {
