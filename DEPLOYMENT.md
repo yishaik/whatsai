@@ -1,8 +1,9 @@
 # Deployment Guide
 
 WhatsAI deploys to **Vercel** (frontend + `api/*` serverless functions) with a
-**Convex** backend for data. CI/CD is GitHub Actions. Git auto-deploys on Vercel
-are off (`vercel.json` `git.deploymentEnabled: false`); Actions is the deployer.
+**Convex** backend for data and a **Cloudflare Worker** for live voice. CI/CD is
+GitHub Actions. Git auto-deploys on Vercel are off (`vercel.json`
+`git.deploymentEnabled: false`); Actions is the deployer.
 
 ## Architecture
 
@@ -10,11 +11,13 @@ are off (`vercel.json` `git.deploymentEnabled: false`); Actions is the deployer.
 - **API** — `api/*.ts` run as Vercel serverless functions. They hold provider
   keys. Shared helpers live in `lib/*.js` (plain JS so Vercel ESM can load them).
 - **Backend** — Convex for personas, rooms, messages, auth, memory, reminders.
+- **Live voice** — Cloudflare Worker + Durable Object (`worker/`, `wrangler.jsonc`)
+  using `@cloudflare/voice` (Flux STT, Aura TTS, Llama 3.1 8B Fast).
 
 Chat, images, STT, and TTS use **Cloudflare Workers AI** when
 `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` are set. Groq, Cerebras,
-OpenRouter, and NVIDIA are optional OpenAI-compatible extras. Gemini is only
-required for **live voice**.
+OpenRouter, and NVIDIA are optional OpenAI-compatible extras. Live voice does
+not use Gemini.
 
 ## CI/CD pipelines
 
@@ -22,7 +25,7 @@ required for **live voice**.
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | push/PR to `main` | `npm ci` → type-check → Vite build |
 | `.github/workflows/pr-preview.yml` | PR with the `preview` label | Vercel preview URL on the PR |
-| `.github/workflows/cd.yml` | push to `main` (non-docs), or **workflow_dispatch** | Type-check → `convex deploy` → Vercel production |
+| `.github/workflows/cd.yml` | push to `main` (non-docs), or **workflow_dispatch** | Type-check → `wrangler deploy` → `convex deploy` → Vercel production |
 | `.github/workflows/sync-cloudflare-env.yml` | **workflow_dispatch** | Copies AI GitHub secrets onto the Vercel project |
 
 Node version is pinned by `.nvmrc`.
@@ -33,6 +36,7 @@ Node version is pinned by `.nvmrc`.
 npm run verify          # typecheck + test + build
 npx convex dev          # backend (local)
 npm run dev:vercel      # UI + /api/*
+npm run dev:voice       # voice Worker on :8787
 ```
 
 ## Required GitHub secrets
@@ -46,7 +50,8 @@ npm run dev:vercel      # UI + /api/*
 | `VERCEL_PROJECT_ID` | CD / env sync | Vercel project settings |
 | `CONVEX_DEPLOY_KEY` | CD | Convex → Project → Settings → Deploy Keys (production) |
 | `CLOUDFLARE_ACCOUNT_ID` | env sync → Vercel | Cloudflare dashboard account ID |
-| `CLOUDFLARE_API_TOKEN` | env sync → Vercel | API token with Account → Workers AI → Read |
+| `CLOUDFLARE_API_TOKEN` | env sync + CD (`wrangler deploy`) | API token with Account → Workers AI → Read **and** Account → Cloudflare Workers → Edit ([Workers template](https://dash.cloudflare.com/profile/api-tokens) plus Workers AI Read). A Read-only AI token will 10000 on `wrangler deploy`. |
+| `VOICE_AGENT_HOST` | env sync → Vercel | Public `https://whatsai-voice.<subdomain>.workers.dev` URL |
 | `GROQ_API_KEY` | env sync → Vercel (optional) | [console.groq.com](https://console.groq.com) |
 | `CEREBRAS_API_KEY` | env sync → Vercel (optional) | [inference.cerebras.ai](https://inference.cerebras.ai) |
 | `OPENROUTER_API_KEY` | env sync → Vercel (optional) | [openrouter.ai/keys](https://openrouter.ai/keys) |
@@ -66,7 +71,7 @@ After changing AI secrets, run **Actions → Sync Cloudflare env to Vercel**, th
 | `CEREBRAS_API_KEY` | Optional Cerebras chat |
 | `OPENROUTER_API_KEY` | Optional OpenRouter (free `:free` models) |
 | `NVIDIA_API_KEY` | Optional NVIDIA NIM |
-| `GEMINI_API_KEY` | Optional — live voice only |
+| `VOICE_AGENT_HOST` | Cloudflare Voice Worker URL (`https://whatsai-voice.<subdomain>.workers.dev`) |
 | `OPENAI_API_KEY` | Optional leftover GPT path if Cloudflare is unset |
 | `VITE_CONVEX_SITE_URL` | Optional Convex HTTP actions URL |
 
@@ -94,7 +99,7 @@ npm run dev:vercel
 - **Chat 500 / missing module** — Vercel ESM functions cannot import sibling `.ts`. Helpers must be `lib/*.js` with `includeFiles: "lib/**"` in `vercel.json`.
 - **Cloudflare 403 / error 5035** — that model needs Workers Paid (e.g. DeepSeek V4 Pro/Flash).
 - **Groq/Cerebras/OpenRouter/NVIDIA fail** — key missing on Vercel; re-run env sync then CD.
-- **Live voice fails** — still Gemini Live; set `GEMINI_API_KEY`.
+- **Live voice fails** — Worker not deployed, or `VOICE_AGENT_HOST` missing on Vercel. Run `npx wrangler deploy`, then set `VOICE_AGENT_HOST` to the printed `workers.dev` URL and re-run env sync + CD. The token needs Workers Scripts Edit, not just Workers AI Read.
 - **CD fails at Convex** — `CONVEX_DEPLOY_KEY` missing or wrong deployment.
 
 ## Security
