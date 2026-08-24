@@ -1,6 +1,8 @@
 # Open Connector skills (WhatsAI)
 
-WhatsAI talks to [Open Connector](https://connect.yishaik.com) with a **dedicated runtime token** (`whatsai`). Personas never see the token. The token allowlist is the security boundary; the skill catalog is what the UI can attach to a persona.
+WhatsAI talks to Open Connector with a **dedicated runtime token** (`whatsai`). Personas never see the token. The token allowlist is the security boundary; the skill catalog is what the UI can attach to a persona.
+
+Machine callers (Vercel) use `https://open-connector.yishai-k.workers.dev`. The console is `https://connect.yishaik.com`. The custom domain sits behind zone Bot Fight Mode, which Free plan cannot skip for datacenter IPs; the client retries `workers.dev` on a Cloudflare 403.
 
 ## Live skills
 

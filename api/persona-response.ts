@@ -114,7 +114,8 @@ const TOOL_DECLS: Record<string, { name: string; description: string; parameters
     parameters: {
       type: 'object',
       properties: {
-        handle: { type: 'string', description: 'Optional channel handle such as @thisaipulse. Omit to use the connected account.' },
+        handle: { type: 'string', description: 'Optional channel handle such as @thisaipulse, or a UC… channel id. Omit to use the connected account (This AI Pulse).' },
+        channelId: { type: 'string', description: 'Optional YouTube channel id starting with UC. Preferred over handle when known.' },
         includeRecent: { type: 'boolean', description: 'Include recent uploads with view counts. Defaults to true.' },
         maxRecent: { type: 'integer', description: 'How many recent videos to include (1-15). Default 8.' },
       },
