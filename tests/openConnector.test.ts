@@ -96,7 +96,7 @@ describe('runOpenConnectorTool', () => {
     expect(JSON.parse(out).passed[0].name).toBe('ok');
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const second = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
-    expect(second[0]).toBe('https://open-connector.yishai-k.workers.dev/v1/actions/mx_toolbox.lookup_dmarc');
+    expect(second[0]).toBe('https://open-connector-api.yishai-k.workers.dev/v1/actions/mx_toolbox.lookup_dmarc');
   });
 
   it('looks up a UC channel id instead of forHandle', async () => {
