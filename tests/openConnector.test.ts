@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const originalFetch = globalThis.fetch;
 
-const jsonResp = (body, status = 200, headerMap: Record<string, string> = {}) => ({
+const jsonResp = (body: unknown, status = 200, headerMap: Record<string, string> = {}) => ({
   ok: status >= 200 && status < 300,
   status,
   headers: { get: (name: string) => headerMap[name.toLowerCase()] || null },
