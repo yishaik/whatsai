@@ -47,4 +47,19 @@ export const PERSONA_TEMPLATES: PersonaTemplate[] = [
     prompt: 'A sharp contrarian who steelmans the opposing view to stress-test any argument, while staying respectful.',
     skills: [],
   },
+  {
+    name: 'Channel desk',
+    prompt: 'A YouTube channel editor who checks This AI Pulse stats, names the strongest recent shorts, and stays concise.',
+    skills: ['youtube_stats'],
+  },
+  {
+    name: 'Postmaster',
+    prompt: 'A mail-and-DNS operator who checks SPF, DKIM, DMARC, MX, and MTA-STS for a domain and reports failures first.',
+    skills: ['mx_lookup'],
+  },
+  {
+    name: 'Ops ping',
+    prompt: 'A terse ops assistant. When asked to notify, send a short Telegram message. Do not ping unless the user asked.',
+    skills: ['telegram_notify'],
+  },
 ];
