@@ -24,6 +24,9 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+      OPEN_CONNECTOR_URL: ${{ secrets.OPEN_CONNECTOR_URL }}
+      OPEN_CONNECTOR_TOKEN: ${{ secrets.OPEN_CONNECTOR_TOKEN }}
+      OPEN_CONNECTOR_TELEGRAM_CHAT_ID: ${{ secrets.OPEN_CONNECTOR_TELEGRAM_CHAT_ID }}
     steps:
       - name: Upsert Vercel env vars
         run: |
@@ -60,6 +63,6 @@ jobs:
                   'message': data.get('message'),
               }
               print(json.dumps(out))
-          for k in ['CLOUDFLARE_ACCOUNT_ID','CLOUDFLARE_API_TOKEN','GROQ_API_KEY','CEREBRAS_API_KEY','OPENROUTER_API_KEY','NVIDIA_API_KEY','VOICE_AGENT_HOST','GEMINI_API_KEY','OPENAI_API_KEY','XAI_API_KEY']:
+          for k in ['CLOUDFLARE_ACCOUNT_ID','CLOUDFLARE_API_TOKEN','GROQ_API_KEY','CEREBRAS_API_KEY','OPENROUTER_API_KEY','NVIDIA_API_KEY','VOICE_AGENT_HOST','GEMINI_API_KEY','OPENAI_API_KEY','XAI_API_KEY','OPEN_CONNECTOR_URL','OPEN_CONNECTOR_TOKEN','OPEN_CONNECTOR_TELEGRAM_CHAT_ID']:
               upsert(k, os.environ.get(k, ''))
           PY

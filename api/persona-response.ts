@@ -10,6 +10,7 @@ import {
   providerReady,
   toApiModelId,
 } from '../lib/providers.js';
+import { OPEN_CONNECTOR_TOOL_NAMES, runOpenConnectorTool } from '../lib/openConnector.js';
 
 // Per-IP rate limit, backed by Convex (shared across lambda instances), so this
 // paid endpoint can't be hammered directly. Inlined (no cross-dir import — that
@@ -81,6 +82,9 @@ const runTool = async (name: string, args: any, timezone: string): Promise<strin
     if (name === 'datetime') {
       return `Current time: ${new Date().toISOString()} (UTC). The user's timezone is "${timezone}".`;
     }
+    if ((OPEN_CONNECTOR_TOOL_NAMES as readonly string[]).includes(name)) {
+      return runOpenConnectorTool(name, args);
+    }
     return `Unknown tool: ${name}`;
   } catch (error) {
     return `Tool error: ${error instanceof Error ? error.message : 'failed'}`;
@@ -103,6 +107,47 @@ const TOOL_DECLS: Record<string, { name: string; description: string; parameters
     name: 'datetime',
     description: "Get the current date/time and the user's timezone.",
     parameters: { type: 'object', properties: {} },
+  },
+  youtube_stats: {
+    name: 'youtube_stats',
+    description: 'Get stats for the connected YouTube channel (This AI Pulse by default): subscribers, views, video count, and recent uploads. Pass a handle like @thisaipulse only when looking up a different channel the account can read.',
+    parameters: {
+      type: 'object',
+      properties: {
+        handle: { type: 'string', description: 'Optional channel handle such as @thisaipulse. Omit to use the connected account.' },
+        includeRecent: { type: 'boolean', description: 'Include recent uploads with view counts. Defaults to true.' },
+        maxRecent: { type: 'integer', description: 'How many recent videos to include (1-15). Default 8.' },
+      },
+    },
+  },
+  mx_lookup: {
+    name: 'mx_lookup',
+    description: 'Look up mail/DNS records for a domain via MxToolbox. Use for MX, SPF, DMARC, DKIM, DNS, blacklist, MTA-STS, BIMI, HTTP, or ping.',
+    parameters: {
+      type: 'object',
+      properties: {
+        domain: { type: 'string', description: 'Domain to check, e.g. yishaik.com.' },
+        check: {
+          type: 'string',
+          enum: ['mx', 'spf', 'dmarc', 'dns', 'dkim', 'blacklist', 'mta-sts', 'bimi', 'http', 'ping'],
+          description: 'Which lookup to run. Default dmarc.',
+        },
+        selector: { type: 'string', description: 'DKIM selector. Default cf2024-1. For Resend use resend.' },
+      },
+      required: ['domain'],
+    },
+  },
+  telegram_notify: {
+    name: 'telegram_notify',
+    description: 'Send a short text ping through the Telegram ops bot. Only use when the user asked to notify or ping Telegram.',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'Message body, max 4096 characters.' },
+        chatId: { type: 'string', description: 'Telegram chat id or @username. Optional if OPEN_CONNECTOR_TELEGRAM_CHAT_ID is set.' },
+      },
+      required: ['text'],
+    },
   },
 };
 

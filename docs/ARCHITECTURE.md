@@ -112,7 +112,7 @@ Helpers **must not** live in `api/` (each file is a function). Shared code is `l
 
 | Function | Called by | Does |
 | --- | --- | --- |
-| `persona-response.ts` | ChatView | Chat completion / SSE stream + tools |
+| `persona-response.ts` | ChatView | Chat completion / SSE stream + tools (including Open Connector skills) |
 | `models.ts` | Settings / pickers | Live model registry |
 | `avatar.ts` | Persona create | Flux Schnell (CF) or Gemini image |
 | `group-avatar.ts` | New room | Same, group prompt |
